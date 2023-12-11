@@ -22,7 +22,7 @@ from radio.input_conditioner import get_default_conditioner, InputConditioner
 
 
 resource_map = {
-    'radio_v1': 'https://huggingface.co/mranzinger/radio/resolve/main/radio_v1.pth.tar?download=true'
+    'radio_v1': 'https://huggingface.co/nvidia/RADIO/resolve/main/radio_v1.pth.tar?download=true'
 }
 
 _DEFAULT_VERSION = 'radio_v1'
