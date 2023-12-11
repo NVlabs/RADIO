@@ -12,7 +12,25 @@ Refer to `model_results.csv` for model versions and their metrics.
 
 ### HuggingFace Hub
 
-_Coming Soon_
+In order to pull the model from HuggingFace, you need to be logged in:
+
+```Bash
+huggingface-cli login
+```
+
+Then you can pull the model from a Python script:
+
+```Python
+from transformers import AutoModel
+model = AutoModel.from_pretrained("nvidia/RADIO", trust_remote_code=True)
+```
+
+Alternatively, you can specify an access token:
+
+```Python
+access_token = "<YOUR ACCESS TOKEN"
+model = AutoModel.from_pretrained("nvidia/RADIO", trust_remote_code=True, token=access_token)
+```
 
 ### TorchHub
 
