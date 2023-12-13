@@ -239,14 +239,14 @@ class ViTPatchGenerator(nn.Module):
                 #     pos_embed = pos_embed[..., top:top+i_rows, left:left+i_cols]
                 # else:
                 max_dim = max(input_dims)
-                pos_embed = F.interpolate(pos_embed, size=(max_dim, max_dim), align_corners=True, mode='bilinear')
+                pos_embed = F.interpolate(pos_embed.float(), size=(max_dim, max_dim), align_corners=True, mode='bilinear').to(pos_embed.dtype)
 
                 pos_embed = window_select(pos_embed)
         else:
             pos_embed = window_select(pos_embed)
 
         if pos_embed.shape[-2:] != input_dims:
-            pos_embed = F.interpolate(pos_embed, size=input_dims, align_corners=True, mode='bilinear')
+            pos_embed = F.interpolate(pos_embed.float(), size=input_dims, align_corners=True, mode='bilinear').to(pos_embed.dtype)
 
         pos_embed = pos_embed.flatten(2).permute(0, 2, 1)
 
