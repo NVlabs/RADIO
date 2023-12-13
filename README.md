@@ -4,7 +4,7 @@ Mike Ranzinger, Greg Heinrich, Jan Kautz, Pavlo Molchanov
 
 [NVIDIA Research](https://www.nvidia.com/en-us/research/)
 
-\[[Paper](TODO)\]\[[BibTex](#citing-radio)\]
+\[[Paper](https://arxiv.org/abs/2312.06709)\]\[[BibTex](#citing-radio)\]
 
 ## Pretrained Models
 
@@ -67,10 +67,12 @@ RADIO code and weights are released under the [NSCLv1 License](LICENSE).
 
 If you find this repository useful, please consider giving a star and citation:
 ```
-@misc{ranzinger2023radio,
-  title={AM-RADIO: Agglomerative Model -- Reduce All Domains Into One},
-  author={Ranzinger, Mike and Heinrich, Greg and Kautz, Jan and Molchanov, Pavlo},
-  journal=TODO,
-  year={2023}
+@misc{ranzinger2023amradio,
+      title={AM-RADIO: Agglomerative Model -- Reduce All Domains Into One},
+      author={Mike Ranzinger and Greg Heinrich and Jan Kautz and Pavlo Molchanov},
+      year={2023},
+      eprint={2312.06709},
+      archivePrefix={arXiv},
+      primaryClass={cs.CV}
 }
 ```
