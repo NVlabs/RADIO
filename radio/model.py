@@ -65,6 +65,9 @@ def create_model_from_args(args) -> nn.Module:
     elif args.input_size is not None:
         in_chans = args.input_size[0]
 
+    # Skip weight initialization unless it's explicitly requested.
+    weight_init = args.model_kwargs.pop("weight_init", "skip")
+
     model = create_model(
         args.model,
         pretrained=args.pretrained,
@@ -78,6 +81,7 @@ def create_model_from_args(args) -> nn.Module:
         bn_eps=args.bn_eps,
         scriptable=args.torchscript,
         checkpoint_path=args.initial_checkpoint,
+        weight_init=weight_init,
         **args.model_kwargs,
     )
 
