@@ -17,6 +17,7 @@ import warnings
 
 from mmengine.model import BaseModule
 from mmseg.models.builder import BACKBONES
+from timm.models.vision_transformer import VisionTransformer
 import torch
 import torch.distributed as dist
 
@@ -58,15 +59,17 @@ class RADIO(BaseModule):
 
         _, features = self.base_model(x)
 
-        # Reshape
-        B, _, C = features.shape
-        if hasattr(self.base_model.model, "patch_generator"):
-            # Cropped Positional Embedding (CPE) case.
-            patch_height = patch_width = self.base_model.model.patch_generator.patch_size
-        else:
-            # Standard ViT case.
-            patch_height, patch_width = self.base_model.model.patch_embed.patch_size
-        features = features.reshape(B, math.ceil(H/patch_height), math.ceil(W/patch_width),  C).permute(0, 3, 1, 2).contiguous()
+        if isinstance(self.base_model.model, VisionTransformer):
+            # Reshape
+            B, _, C = features.shape
+
+            if hasattr(self.base_model.model, "patch_generator"):
+                # Cropped Positional Embedding (CPE) case.
+                patch_height = patch_width = self.base_model.model.patch_generator.patch_size
+            else:
+                # Standard ViT case.
+                patch_height, patch_width = self.base_model.model.patch_embed.patch_size
+            features = features.reshape(B, math.ceil(H/patch_height), math.ceil(W/patch_width),  C).permute(0, 3, 1, 2).contiguous()
 
         # IMPORTANT: prevent gradients from flowing back towards the backbone.
         features = features.detach()

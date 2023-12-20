@@ -12,24 +12,18 @@ Refer to `model_results.csv` for model versions and their metrics.
 
 ### HuggingFace Hub
 
-In order to pull the model from HuggingFace, you need to be logged in:
-
-```Bash
-huggingface-cli login
-```
-
-Then you can pull the model from a Python script:
+Pull the RADIO model from a Python script:
 
 ```Python
 from transformers import AutoModel
 model = AutoModel.from_pretrained("nvidia/RADIO", trust_remote_code=True)
 ```
 
-Alternatively, you can specify an access token:
+Pull the E-RADIO model from a Python script:
 
 ```Python
-access_token = "<YOUR ACCESS TOKEN"
-model = AutoModel.from_pretrained("nvidia/RADIO", trust_remote_code=True, token=access_token)
+from transformers import AutoModel
+model = AutoModel.from_pretrained("nvidia/E-RADIO", trust_remote_code=True)
 ```
 
 ### TorchHub
@@ -56,9 +50,16 @@ with torch.cuda.amp.autocast(dtype=torch.bfloat16):
 
 ### Usage
 
-RADIO will return a tuple with two tensors. The `summary` is similar to the `cls_token` in ViT and is meant to represent the general concept of the entire image. It has shape $(B,C)$ with $B$ being the batch dimension, and $C$ being some number of channels. The `spatial_features` represent more localized content which should be suitable for dense tasks such as semantic segmentation, or for integration into an LLM. It has shape $(B,T,D)$ with $T$ being the flattened spatial tokens, and $D$ being the channels for spatial features. Note that $C \neq D$ in general.
+RADIO and E-RADIO will return a tuple with two tensors.
+The `summary` is similar to the `cls_token` in ViT and is meant to represent the general concept of the entire image.
+It has shape $(B,C)$ with $B$ being the batch dimension, and $C$ being some number of channels.
+The `spatial_features` represent more localized content which should be suitable for dense tasks such as semantic segmentation, or for integration into an LLM.
+RADIO and E-RADIO return spatial features in different shapes:
 
-Converting to a spatial tensor format can be done using the downsampling size of the model, combined with the input tensor shape. For 'radio_v1', the patch size is 14.
+* RADIO: spatial features have shape $(B,T,D)$ with $T$ being the flattened spatial tokens, and $D$ being the channels for spatial features. Note that $C \neq D$ in general.
+* E-RADIO: spatial features have shape $(B,H,W,D)$ with $H$ being the height, and $W$ being the width of the spatial features.
+
+For RADIO, converting to a spatial tensor format can be done using the downsampling size of the model, combined with the input tensor shape. For 'radio_v1', the patch size is 14.
 ```Python
 from einops import rearrange
 spatial_features = rearrange(spatial_features, 'b (h w) d -> b d h w', h=x.shape[-2] // patch_size, w=x.shape[-1] // patch_size)
