@@ -85,7 +85,7 @@ RADIO code and weights are released under the [NSCLv1 License](LICENSE).
 ## Citing RADIO
 
 If you find this repository useful, please consider giving a star and citation:
-```
+```bibtex
 @misc{ranzinger2023amradio,
       title={AM-RADIO: Agglomerative Model -- Reduce All Domains Into One},
       author={Mike Ranzinger and Greg Heinrich and Jan Kautz and Pavlo Molchanov},
