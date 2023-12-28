@@ -9,6 +9,7 @@ import argparse
 from collections import defaultdict
 import math
 import os
+from PIL import Image
 from tqdm import tqdm
 from typing import Any, Dict, Iterable, List, Tuple
 
@@ -47,6 +48,9 @@ def main(rank: int = 0, world_size: int = 1):
     )
     parser.add_argument('-d', '--dataset', default='food101',
                         help='The name of the dataset to classify'
+    )
+    parser.add_argument('--eval-dataset', default=None, type=str,
+                        help='The name of the evaluation dataset, if different than the training one.'
     )
     parser.add_argument('--resize-multiple', type=int, default=14,
                         help='Resize images with dimensions a multiple of this value.'
@@ -97,21 +101,32 @@ def main(rank: int = 0, world_size: int = 1):
     transform = transforms.Compose(transform)
 
     rank_print('Loading dataset...')
-    ds_builder = load_dataset_builder(args.dataset)
-    num_classes = ds_builder.info.features['label'].num_classes
-    num_train_examples = ds_builder.info.splits[args.train_split].num_examples
-    num_eval_examples = ds_builder.info.splits[args.eval_split].num_examples
+    ds_train_builder = load_dataset_builder(args.dataset, trust_remote_code=True)
+    num_classes = ds_train_builder.info.features['label'].num_classes
+    num_train_examples = ds_train_builder.info.splits[args.train_split].num_examples
+
+    def _prepare(builder):
+        for i in range(min(2, world_size)):
+            if i == rank or (i > 0 and rank > 0):
+                builder.download_and_prepare()
+            if world_size > 1:
+                dist.barrier()
+    _prepare(ds_train_builder)
+
+    if args.eval_dataset:
+        ds_eval_builder = load_dataset_builder(args.eval_dataset, trust_remote_code=True)
+        _prepare(ds_eval_builder)
+    else:
+        ds_eval_builder = ds_train_builder
+
+    num_eval_examples = ds_eval_builder.info.splits[args.eval_split].num_examples
+    assert num_classes == ds_eval_builder.info.features['label'].num_classes, "The number of classes must match between train and eval!"
 
     num_train_steps = _round_up(num_train_examples, args.batch_size * world_size)
     num_eval_steps = _round_up(num_eval_examples, args.batch_size * world_size)
 
-    if rank == 0:
-        ds_builder.download_and_prepare()
-    if world_size > 1:
-        dist.barrier()
-
-    def _get_dataset(split: str):
-        dataset = ds_builder.as_dataset(split=split)
+    def _get_dataset(builder, split: str):
+        dataset = builder.as_dataset(split=split)
         dataset = dataset.to_iterable_dataset(num_shards=world_size * max(1, args.workers))
         dataset = split_dataset_by_node(dataset, rank=rank, world_size=world_size)
         dataset = dataset.map(lambda ex: dict(image=transform(ex['image']), label=torch.as_tensor(ex['label'], dtype=torch.int64)))
@@ -124,11 +139,11 @@ def main(rank: int = 0, world_size: int = 1):
 
         return loader
 
-    train_dataset = _get_dataset(args.train_split)
-    eval_dataset = _get_dataset(args.eval_split)
+    train_dataset = _get_dataset(ds_train_builder, args.train_split)
+    eval_dataset = _get_dataset(ds_eval_builder, args.eval_split)
 
     rank_print('Loaded dataset!')
-    rank_print(f'Description: {ds_builder.info.description}')
+    rank_print(f'Description: {ds_train_builder.info.description}')
 
     if not args.resolution:
         args.resolution = (378, 378)
@@ -141,24 +156,7 @@ def main(rank: int = 0, world_size: int = 1):
     # Gather all of the eval labels onto all of the ranks
     rank_print(f'Building {args.eval_split} database...')
     eval_embeddings, eval_labels = _build_database(eval_dataset, model, device, num_eval_steps, rank)
-    max_eval = torch.tensor(eval_labels.shape[0], dtype=torch.int64, device=device)
-    if world_size > 1:
-        dist.all_reduce(max_eval, op=dist.ReduceOp.MAX)
-    max_eval = max_eval.item()
-    if max_eval > eval_labels.shape[0]:
-        # We need to pad
-        num_valid = eval_labels.shape[0]
-        num_pad = max_eval - eval_labels.shape[0]
-        eval_embeddings = torch.cat([
-            eval_embeddings,
-            torch.zeros_like(eval_embeddings[:1].expand(num_pad, -1)),
-        ])
-        eval_labels = torch.cat([
-            eval_labels,
-            torch.zeros_like(eval_labels[:1].expand(num_pad)),
-        ])
-    else:
-        num_valid = max_eval
+    num_valid = eval_labels.shape[0]
 
     rank_print('Calculating accuracy...')
     knn_top1 = _knn_top1_accuracy(
@@ -196,6 +194,9 @@ class ResizeTransform(transforms.Transform):
         height, width = transforms._utils.query_size(flat_inputs)
 
         if len(self.size) == 1:
+            # Shortest-side mode.
+            # Resize the short dimension of the image to be the specified size,
+            # and the other dimension aspect preserving
             min_sz = min(height, width)
             factor = self.size[0] / min_sz
 
@@ -203,6 +204,7 @@ class ResizeTransform(transforms.Transform):
             rs_width = width * factor
             size = (rs_height, rs_width)
         elif len(self.size) == 2:
+            # Center-crop mode (the actual crop will be done by subsequent transform)
             in_aspect = height / width
             out_aspect = self.size[0] / self.size[1]
 
@@ -223,6 +225,9 @@ class ResizeTransform(transforms.Transform):
         return dict(size=size)
 
     def _transform(self, inpt: Any, params: Dict[str, Any]) -> Any:
+        if isinstance(inpt, Image.Image):
+            inpt = inpt.convert('RGB')
+
         size = params['size']
 
         return transforms.functional.resize(inpt, size=size, interpolation=transforms.InterpolationMode.BICUBIC)
