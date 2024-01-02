@@ -31,12 +31,12 @@ python knn_classification.py --dataset food101
 python knn_classification.py --dataset "jonathancui/oxford-pets" --eval-split test
 
 # ImageNet-1K
-python knn_classification.py --dataset imagenet-1k
+torchrun --nproc-per-node 8 knn_classification.py --dataset imagenet-1k
 
 # ImageNet Sketch
 # This usage is a bit peculiar. ImageNet-Sketch is a different evaluation set for ImageNet-1K, so we
 #   use the same training database as ImageNet-1K.
-python knn_classification.py --dataset imagenet-1k --eval-dataset imagenet_sketch --eval-split train
+torchrun --nproc-per-node 8 knn_classification.py --dataset imagenet-1k --eval-dataset imagenet_sketch --eval-split train
 ```
 
 Owing to the flexibility of RADIO, we also provide the ability to flexibly define the input resolution to the model. The default is that the image is resized to 378px on the smaller dimension, and then we center-crop to 378px on the larger dimension, resulting in a (378, 378) image being fed to the model.
