@@ -224,12 +224,12 @@ class ViTPatchGenerator(nn.Module):
                 grid_xy.mul_(2).sub_(1)
 
                 pos_embed = F.grid_sample(
-                    pos_embed.expand(batch_size, -1, -1, -1),
+                    pos_embed.float().expand(batch_size, -1, -1, -1),
                     grid=grid_xy,
                     mode='bilinear',
                     padding_mode='zeros',
                     align_corners=True,
-                )
+                ).to(pos_embed.dtype)
             else:
                 # i_rows, i_cols = input_dims
                 # p_rows, p_cols = pos_embed.shape[2:]
