@@ -44,3 +44,21 @@ Owing to the flexibility of RADIO, we also provide the ability to flexibly defin
 Alternatively, you can use a different center cropped resolution by specifying `--resolution 224 224` (or any other value divisible `--resize-multiple`, which should be the patch size of the RADIO model).
 
 RADIO also supports non-square inputs, which you can configure using only a single resolution value, e.g. `--resolution 378`, which means that the smaller image dimension will be resized to 378px, and the larger dimension resized aspect preserving.
+
+### Patch Position Predictor
+
+This example showcases a property of RADIO features, i.e. that patch tokens at the output of the model retain information about their position within the image.
+This is useful to know, since some downstream applications (e.g. Visual Question Answering) can benefit from spatial awareness, for example to answer questions
+such as "Q: What is on the left of the table? A: A person."
+
+The position predictor consumes frozen RADIO features and applies a linear transformation of individual patch tokens (this is implemented using a 2-channel 1x1
+conv2d with stride 1) in order to predict the coordinates of each token.
+
+Below is a sample invocation of the test script (use `--help` for command-line options):
+
+```
+torchrun --nproc-per-node 8 position_predictor.py
+```
+
+At the end of training, the average L1 distance between predictions and x/y coordinates (in the -1/+1 range) is expected to be in the vicinity of 0.02,
+indicating good spatial awareness.
