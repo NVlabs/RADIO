@@ -14,6 +14,7 @@ from torch.hub import load_state_dict_from_url
 
 from timm.models import clean_state_dict
 
+from radio.adaptors import adaptor_registry
 from radio.radio_model import RADIOModel, create_model_from_args
 from radio.input_conditioner import get_default_conditioner
 
@@ -30,6 +31,7 @@ def radio_model(
     progress: bool = True,
     return_summary: bool = True,
     return_spatial_features: bool = True,
+    adaptor_name: str = None,
     **kwargs,
 ) -> RADIOModel:
     if not version:
@@ -49,12 +51,37 @@ def radio_model(
     conditioner = get_default_conditioner()
     conditioner.load_state_dict(get_prefix_state_dict(state_dict, "input_conditioner."))
 
-    return RADIOModel(
+    radio = RADIOModel(
         mod,
         conditioner,
         return_summary=return_summary,
         return_spatial_features=return_spatial_features,
     )
+
+    if adaptor_name:
+        teachers = chk["args"].teachers
+        for tidx, tconf in enumerate(teachers):
+            if tconf["name"] == adaptor_name:
+                break
+        else:
+            raise ValueError(f'Unable to find the specified adaptor name. Known names: {list(t["name"] for t in teachers)}')
+
+        ttype = tconf["type"]
+
+        pf_head = f'_heads.{tidx}'
+        pf_feat = f'_feature_projections.{tidx}'
+
+        adaptor_state = dict()
+        for k, v in state_dict.items():
+            if k.startswith(pf_head):
+                adaptor_state['head' + k[len(pf_head):]] = v
+            elif k.startswith(pf_feat):
+                adaptor_state['feature' + k[len(pf_feat):]] = v
+
+        radio.summary_select_idx = tidx
+        radio = adaptor_registry.create_adaptor(ttype, radio, chk["args"], tconf, adaptor_state)
+
+    return radio
 
 
 def get_prefix_state_dict(state_dict: Dict[str, Any], prefix: str):

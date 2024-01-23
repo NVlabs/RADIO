@@ -29,6 +29,11 @@ class RADIOModel(nn.Module):
         self.input_conditioner = input_conditioner
         self.return_summary = return_summary
         self.return_spatial_features = return_spatial_features
+        self.summary_select_idx = -1
+
+    @property
+    def return_both(self):
+        return self.return_summary and self.return_spatial_features
 
     def forward(self, x: torch.Tensor):
         x = self.input_conditioner(x)
@@ -40,7 +45,11 @@ class RADIOModel(nn.Module):
         elif isinstance(self.model, VisionTransformer):
             patch_gen = getattr(self.model, "patch_generator", None)
             if patch_gen is not None:
-                summary = y[:, : patch_gen.num_cls_tokens].flatten(1)
+                summary = y[:, : patch_gen.num_cls_tokens]
+                if self.summary_select_idx >= 0:
+                    summary = summary[:, self.summary_select_idx]
+                else:
+                    summary = summary.flatten(1)
                 all_feat = y[:, patch_gen.num_skip :]
             elif self.model.global_pool == "avg":
                 summary = y[:, self.model.num_prefix_tokens :].mean(dim=1)
@@ -51,7 +60,7 @@ class RADIOModel(nn.Module):
         else:
             raise ValueError("Unsupported model type")
 
-        if self.return_summary and self.return_spatial_features:
+        if self.return_both:
             return summary, all_feat
         elif self.return_summary:
             return summary
