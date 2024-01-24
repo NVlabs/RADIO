@@ -107,7 +107,7 @@ conv2d with stride 1) in order to predict the coordinates of each token.
 
 Below is a sample invocation of the test script (use `--help` for command-line options):
 
-```
+```Bash
 torchrun --nproc-per-node 8 position_predictor.py
 ```
 

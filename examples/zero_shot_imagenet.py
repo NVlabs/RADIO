@@ -73,12 +73,11 @@ def main(rank: int = 0, world_size: int = 1):
     rank_print('Loading model...')
 
     ctor_args = dict(version=args.model_version, progress=True, adaptor_name=args.adaptor_name, return_spatial_features=False)
-    with run_rank_0_first():
-        if not args.use_local_lib:
-            model = hub.load('NVlabs/RADIO', 'radio_model', force_reload=args.force_reload, **ctor_args)
-        else:
-            from hubconf import radio_model
-            model = radio_model(**ctor_args)
+    if not args.use_local_lib:
+        model = hub.load('NVlabs/RADIO', 'radio_model', force_reload=args.force_reload, **ctor_args)
+    else:
+        from hubconf import radio_model
+        model = radio_model(**ctor_args)
 
     model.to(device=device).eval()
     rank_print('Done')

@@ -77,12 +77,11 @@ def main(rank: int = 0, world_size: int = 1):
     args, _ = parser.parse_known_args()
 
     rank_print('Loading model...')
-    with run_rank_0_first():
-        if args.use_hf:
-            from transformers import AutoModel
-            model = AutoModel.from_pretrained(f"nvidia/{args.model_version}", trust_remote_code=True)
-        else:
-            model = torch.hub.load('NVlabs/RADIO', 'radio_model', force_reload=args.force_reload, version=args.model_version, progress=True)
+    if args.use_hf:
+        from transformers import AutoModel
+        model = AutoModel.from_pretrained(f"nvidia/{args.model_version}", trust_remote_code=True)
+    else:
+        model = torch.hub.load('NVlabs/RADIO', 'radio_model', force_reload=args.force_reload, version=args.model_version, progress=True)
 
     model.to(device=device).eval()
     rank_print('Done')
