@@ -29,7 +29,7 @@ from datasets.distributed import split_dataset_by_node
 
 from open_clip import IMAGENET_CLASSNAMES, OPENAI_IMAGENET_TEMPLATES
 
-from .common import collate, round_up, get_standard_transform, get_rank, get_world_size
+from common import collate, round_up, get_standard_transform, get_rank, get_world_size
 
 
 def main(rank: int = 0, world_size: int = 1):
@@ -111,25 +111,29 @@ def main(rank: int = 0, world_size: int = 1):
         k: torch.tensor(0.0, dtype=torch.float32, device=device)
         for k in (1, 5)
     }
-    num_examples = 0
-    with torch.inference_mode():
-        for batch_idx, (images, target) in tqdm(enumerate(loader), total=num_steps, desc='batch', disable=rank > 0):
-            images = images.to(device=device, non_blocking=True)
-            target = target.to(device=device, non_blocking=True)
+    num_processed = 0
+    with torch.inference_mode(), tqdm(total=num_examples, disable=rank > 0) as t:
+        for batches in loader:
+            for images, targets in batches:
+                images = images.to(device=device, non_blocking=True)
+                targets = targets.to(device=device, non_blocking=True)
 
-            with torch.autocast(device.type, dtype=torch.bfloat16):
-                summary = model.encode_image(images)
+                with torch.autocast(device.type, dtype=torch.bfloat16):
+                    summary = model.encode_image(images)
 
-                logits = summary @ classifier
+                    logits = summary @ classifier
 
-                accs = accuracy(logits, target, topk=topks.keys())
-                for k, acc in zip(topks.keys(), accs):
-                    topks[k].add_(acc * images.shape[0])
-                num_examples += images.shape[0]
+                    accs = accuracy(logits, targets, topk=topks.keys())
+                    for k, acc in zip(topks.keys(), accs):
+                        topks[k].add_(acc * images.shape[0])
+                    num_processed += images.shape[0]
+
+            t.set_postfix({f'Top-{k}': f'{v.item() / num_processed:.03f}' for k, v in topks.items()})
+            t.update(world_size * args.batch_size)
 
     if world_size > 1:
-        num_examples = torch.tensor(num_examples, device=device)
-        dist.reduce(num_examples, dst=0, op=dist.ReduceOp.SUM)
+        num_processed = torch.tensor(num_processed, device=device)
+        dist.reduce(num_processed, dst=0, op=dist.ReduceOp.SUM)
 
         for k, acc in topks.items():
             dist.reduce(acc, dst=0, op=dist.ReduceOp.SUM)
@@ -137,7 +141,7 @@ def main(rank: int = 0, world_size: int = 1):
 
     rank_print('Accuracy:')
     for k, acc in topks.items():
-        acc = (acc / num_examples).item()
+        acc = (acc / num_processed).item()
 
         rank_print(f'\tTop {k}: {acc:.3f}')
 
@@ -157,6 +161,7 @@ def accuracy(output, target, topk=(1,)):
     return [correct[:min(k, maxk)].reshape(-1).float().sum(0) * 100. / batch_size for k in topk]
 
 
+@torch.no_grad()
 def get_clip_classifier(model, tokenizer,
                         model_key,
                         device: torch.device,
@@ -186,7 +191,7 @@ def get_clip_classifier(model, tokenizer,
 
     cache_hash = sha256(key_str).hexdigest()[:16]
 
-    cache_dir = os.path.join(hub.get_dir(), 'radio/clip_classifier')
+    cache_dir = os.path.join(hub.get_dir(), 'NVlabs_RADIO_main/clip_classifier')
     os.makedirs(cache_dir, exist_ok=True)
 
     cache_file = os.path.join(cache_dir, f'{cache_hash}.pt')
@@ -245,3 +250,15 @@ def get_clip_classifier(model, tokenizer,
         torch.save(class_embeddings, cache_file)
 
     return class_embeddings
+
+
+if __name__ == '__main__':
+    rank = 0
+    world_size = 1
+
+    if 'WORLD_SIZE' in os.environ:
+        dist.init_process_group(backend='nccl')
+        rank = dist.get_rank()
+        world_size = dist.get_world_size()
+
+    main(rank, world_size)
