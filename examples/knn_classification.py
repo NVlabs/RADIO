@@ -72,15 +72,17 @@ def main(rank: int = 0, world_size: int = 1):
     parser.add_argument('-k', default=20, type=int,
                         help="How many neighbors to use for classification."
     )
+    parser.add_argument('--force-reload', default=False, action='store_true', help='Force reload RADIO library')
 
     args, _ = parser.parse_known_args()
 
     rank_print('Loading model...')
-    if args.use_hf:
-        from transformers import AutoModel
-        model = AutoModel.from_pretrained(f"nvidia/{args.model_version}", trust_remote_code=True)
-    else:
-        model = torch.hub.load('NVlabs/RADIO', 'radio_model', version=args.model_version, progress=True)
+    with run_rank_0_first():
+        if args.use_hf:
+            from transformers import AutoModel
+            model = AutoModel.from_pretrained(f"nvidia/{args.model_version}", trust_remote_code=True)
+        else:
+            model = torch.hub.load('NVlabs/RADIO', 'radio_model', force_reload=args.force_reload, version=args.model_version, progress=True)
 
     model.to(device=device).eval()
     rank_print('Done')

@@ -29,7 +29,7 @@ from datasets.distributed import split_dataset_by_node
 
 from open_clip import IMAGENET_CLASSNAMES, OPENAI_IMAGENET_TEMPLATES
 
-from common import collate, round_up, get_standard_transform, get_rank, get_world_size, rank_print
+from common import collate, round_up, get_standard_transform, get_rank, get_world_size, rank_print, run_rank_0_first
 
 
 def main(rank: int = 0, world_size: int = 1):
@@ -66,17 +66,19 @@ def main(rank: int = 0, world_size: int = 1):
                         help='The number of data loader workers to use per GPU'
     )
     parser.add_argument('--use-local-lib', default=False, action='store_true', help='Use the library locally, instead of through TorchHub')
+    parser.add_argument('--force-reload', default=False, action='store_true', help='Force reload RADIO library')
 
     args, _ = parser.parse_known_args()
 
     rank_print('Loading model...')
 
     ctor_args = dict(version=args.model_version, progress=True, adaptor_name=args.adaptor_name, return_spatial_features=False)
-    if not args.use_local_lib:
-        model = hub.load('NVlabs/RADIO', 'radio_model', **ctor_args)
-    else:
-        from hubconf import radio_model
-        model = radio_model(**ctor_args)
+    with run_rank_0_first():
+        if not args.use_local_lib:
+            model = hub.load('NVlabs/RADIO', 'radio_model', force_reload=args.force_reload, **ctor_args)
+        else:
+            from hubconf import radio_model
+            model = radio_model(**ctor_args)
 
     model.to(device=device).eval()
     rank_print('Done')
@@ -186,7 +188,7 @@ def get_clip_classifier(model, tokenizer,
 
     cache_hash = sha256(key_str).hexdigest()[:16]
 
-    cache_dir = os.path.join(hub.get_dir(), 'NVlabs_RADIO_main/clip_classifier')
+    cache_dir = os.path.join(hub.get_dir(), 'NVlabs_RADIO_main_clip/classifier')
     os.makedirs(cache_dir, exist_ok=True)
 
     cache_file = os.path.join(cache_dir, f'{cache_hash}.pt')

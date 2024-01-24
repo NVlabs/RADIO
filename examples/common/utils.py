@@ -51,6 +51,8 @@ def run_rank_0_first(group: Optional[dist.ProcessGroup] = None):
         if rank > 0:
             yield
 
+        dist.barrier(group)
+
 
 def get_rank(group: Optional[dist.ProcessGroup] = None):
     return dist.get_rank(group) if dist.is_initialized() else 0
