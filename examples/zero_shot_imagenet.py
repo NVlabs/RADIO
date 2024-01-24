@@ -43,7 +43,7 @@ def main(rank: int = 0, world_size: int = 1):
                         help='Which radio model to load.'
     )
     parser.add_argument('-a', '--adaptor-name', default='clip', help='Which head to use')
-    parser.add_argument('-r', '--resolution', nargs='+', type=int, default=(378, 378),
+    parser.add_argument('-r', '--resolution', nargs='+', type=int, default=(378,),
                         help='The input image resolution.'
                         ' If one value is specified, the shortest dimension is resized to this.'
                         ' If two, the image is center cropped.'
