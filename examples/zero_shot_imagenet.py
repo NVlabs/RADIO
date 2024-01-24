@@ -128,7 +128,7 @@ def main(rank: int = 0, world_size: int = 1):
                         topks[k].add_(acc * images.shape[0])
                     num_processed += images.shape[0]
 
-            t.set_postfix({f'Top-{k}': f'{v.item() / num_processed:.03f}' for k, v in topks.items()})
+            t.set_postfix({'Rank': '0', **{f'Top-{k}': f'{v.item() / num_processed:.03f}' for k, v in topks.items()}})
             t.update(world_size * args.batch_size)
 
     if world_size > 1:
