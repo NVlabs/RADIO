@@ -74,7 +74,7 @@ def radio_model(
         adaptor_state = dict()
         for k, v in state_dict.items():
             if k.startswith(pf_head):
-                adaptor_state['head' + k[len(pf_head):]] = v
+                adaptor_state['summary' + k[len(pf_head):]] = v
             elif k.startswith(pf_feat):
                 adaptor_state['feature' + k[len(pf_feat):]] = v
 

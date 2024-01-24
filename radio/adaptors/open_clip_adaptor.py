@@ -21,7 +21,7 @@ class OpenCLIP_RADIO(nn.Module):
         super().__init__()
 
         self.base_model = base_model
-        self.head_mlp = create_mlp_from_state(main_config.mlp_version, state, 'head.')
+        self.head_mlp = create_mlp_from_state(main_config.mlp_version, state, 'summary.')
         self.feat_mlp = create_mlp_from_state(main_config.mlp_version, state, 'feature.')
 
         import open_clip
