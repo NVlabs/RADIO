@@ -1,3 +1,4 @@
 transformers
 datasets
 timm
+open_clip_torch
