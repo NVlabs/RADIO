@@ -1,5 +1,56 @@
 # RADIO Examples
 
+## Zero-Shot ImageNet Classification
+Because RADIO learns to match the features of a teacher CLIP model, we are able to replace the vision tower of the CLIP model with RADIO, but use the already trained text tower to run Zero Shot classification.
+
+### Evaluation Script
+
+```Bash
+# Single GPU
+python zero_shot_imagenet.py
+
+# Multi-GPU
+torchrun --nproc-per-node 8 zero_shot_imagenet.py
+
+# Classify ImageNet-Sketch
+torchrun --nproc-per-node 8 zero_shot_imagenet.py --resolution 378 --dataset imagenet_sketch --split train
+```
+
+The default setting is that images will have their shorter dimension resized to 378px aspect preserving (meaning that RADIO processes non-square images). This is identical to using `--resolution 378` (note the single value)
+
+#### ImageNet-1k Results
+
+```Bash
+$ torchrun --nproc-per-node 8 zero_shot_imagenet.py
+...
+Accuracy:
+        Top 1: 82.928
+        Top 5: 97.364
+```
+
+If you'd like square crops, then add `--resolution 378 378`.
+
+```Bash
+$ torchrun --nproc-per-node 8 zero_shot_imagenet.py --resolution 378 378
+...
+Accuracy:
+        Top 1: 82.654
+        Top 5: 97.282
+```
+
+As long as either, or both of the dimensions are divisible by 14, RADIO will run at the specified resolution, up to 1050px.
+
+*NOTE: We made a mistake in the reporting of zero shot top-1 with the reported 82.73% Top-1 accuracy in the paper. That number came from the maximum value achieved during training, which was a different checkpoint from the one we use for RADIOv1. This is an unfortunate situation, however, given that we achieve 82.928% with non-square crops at the same resolution, we feel as though we maintain integrity.*
+
+#### ImageNet-Sketch Results
+```Bash
+$ torchrun --nproc-per-node 8 zero_shot_imagenet.py --resolution 378 --dataset imagenet_sketch --split train
+...
+Accuracy:
+        Top 1: 70.756
+        Top 5: 90.701
+```
+
 ## K-NN Classification
 
 K-NN classification consists of embedding all of the summary vectors produced by the model into a database. We then can classify a new vector given this database by computing a weighted sum of the $k$ nearest vectors in the database.
