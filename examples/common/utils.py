@@ -58,3 +58,8 @@ def get_rank(group: Optional[dist.ProcessGroup] = None):
 
 def get_world_size(group: Optional[dist.ProcessGroup] = None):
     return dist.get_world_size(group) if dist.is_initialized() else 1
+
+
+def rank_print(*args, **kwargs):
+    if get_rank() == 0:
+        print(*args, **kwargs)

@@ -29,7 +29,7 @@ from datasets.distributed import split_dataset_by_node
 
 from open_clip import IMAGENET_CLASSNAMES, OPENAI_IMAGENET_TEMPLATES
 
-from common import collate, round_up, get_standard_transform, get_rank, get_world_size
+from common import collate, round_up, get_standard_transform, get_rank, get_world_size, rank_print
 
 
 def main(rank: int = 0, world_size: int = 1):
@@ -146,11 +146,6 @@ def main(rank: int = 0, world_size: int = 1):
         rank_print(f'\tTop {k}: {acc:.3f}')
 
 
-def rank_print(*args, **kwargs):
-    if get_rank() == 0:
-        print(*args, **kwargs)
-
-
 def accuracy(output, target, topk=(1,)):
     """Computes the accuracy over the k top predictions for the specified values of k"""
     maxk = min(max(topk), output.size()[1])
@@ -204,7 +199,7 @@ def get_clip_classifier(model, tokenizer,
     rank = get_rank(dist_group)
     world_size = get_world_size(dist_group)
 
-    classes_per_rank = int(math.ceil(len(classnames) / world_size))
+    classes_per_rank = round_up(len(classnames), world_size)
     num_even_classes = classes_per_rank * world_size
 
     # This will make the number of classes processed per-rank the same

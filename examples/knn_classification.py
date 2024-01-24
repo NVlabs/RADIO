@@ -23,7 +23,7 @@ from datasets import load_dataset_builder, load_dataset
 from datasets.iterable_dataset import DistributedConfig
 from datasets.distributed import split_dataset_by_node
 
-from .common import collate, round_up, get_standard_transform, run_rank_0_first
+from common import collate, round_up, get_standard_transform, run_rank_0_first, rank_print
 
 
 def main(rank: int = 0, world_size: int = 1):
@@ -75,10 +75,6 @@ def main(rank: int = 0, world_size: int = 1):
 
     args, _ = parser.parse_known_args()
 
-    def rank_print(*args, **kwargs):
-        if rank == 0:
-            print(*args, **kwargs)
-
     rank_print('Loading model...')
     if args.use_hf:
         from transformers import AutoModel
@@ -88,9 +84,6 @@ def main(rank: int = 0, world_size: int = 1):
 
     model.to(device=device).eval()
     rank_print('Done')
-
-    if not args.resolution:
-        args.resolution = (378, 378)
 
     transform = get_standard_transform(args.resolution, args.resize_multiple)
 
