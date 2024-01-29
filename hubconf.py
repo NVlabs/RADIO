@@ -8,8 +8,10 @@
 
 dependencies = ["torch", "timm", "einops"]
 
+import os
 from typing import Dict, Any
 
+import torch
 from torch.hub import load_state_dict_from_url
 
 from timm.models import clean_state_dict
@@ -37,9 +39,12 @@ def radio_model(
     if not version:
         version = _DEFAULT_VERSION
 
-    chk = load_state_dict_from_url(
-        resource_map[version], progress=progress, map_location="cpu"
-    )
+    if os.path.isfile(version):
+        chk = torch.load(version, map_location="cpu")
+    else:
+        chk = load_state_dict_from_url(
+            resource_map[version], progress=progress, map_location="cpu"
+        )
 
     mod = create_model_from_args(chk["args"])
 
