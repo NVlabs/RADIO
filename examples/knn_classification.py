@@ -72,6 +72,7 @@ def main(rank: int = 0, world_size: int = 1):
     parser.add_argument('-k', default=20, type=int,
                         help="How many neighbors to use for classification."
     )
+    parser.add_argument('--use-local-lib', default=False, action='store_true', help='Use the library locally, instead of through TorchHub')
     parser.add_argument('--force-reload', default=False, action='store_true', help='Force reload RADIO library')
 
     args, _ = parser.parse_known_args()
@@ -81,7 +82,12 @@ def main(rank: int = 0, world_size: int = 1):
         from transformers import AutoModel
         model = AutoModel.from_pretrained(f"nvidia/{args.model_version}", trust_remote_code=True)
     else:
-        model = torch.hub.load('NVlabs/RADIO', 'radio_model', force_reload=args.force_reload, version=args.model_version, progress=True)
+        ctor_args = dict(version=args.model_version, progress=True)
+        if not args.use_local_lib:
+            model = torch.hub.load('NVlabs/RADIO', 'radio_model', force_reload=args.force_reload, **ctor_args)
+        else:
+            from hubconf import radio_model
+            model = radio_model(**ctor_args)
 
     model.to(device=device).eval()
     rank_print('Done')

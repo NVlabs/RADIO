@@ -5,6 +5,7 @@
 # and any modifications thereto.  Any use, reproduction, disclosure or
 # distribution of this software and related documentation without an express
 # license agreement from NVIDIA CORPORATION is strictly prohibited.
+from typing import Optional
 
 import torch
 from torch import nn
@@ -13,6 +14,8 @@ from timm.models import create_model, VisionTransformer
 
 from .enable_cpe_support import enable_cpe
 from .input_conditioner import InputConditioner
+# Register extra models
+from . import extra_timm_models
 
 
 class RADIOModel(nn.Module):
@@ -22,6 +25,7 @@ class RADIOModel(nn.Module):
         input_conditioner: InputConditioner,
         return_summary: bool,
         return_spatial_features: bool,
+        summary_idxs: Optional[torch.Tensor] = None,
     ):
         super().__init__()
 
@@ -30,6 +34,10 @@ class RADIOModel(nn.Module):
         self.return_summary = return_summary
         self.return_spatial_features = return_spatial_features
         self.summary_select_idx = -1
+        if summary_idxs is not None:
+            self.register_buffer('summary_idxs', summary_idxs)
+        else:
+            self.summary_idxs = None
 
     @property
     def return_both(self):
@@ -48,6 +56,8 @@ class RADIOModel(nn.Module):
                 summary = y[:, : patch_gen.num_cls_tokens]
                 if self.summary_select_idx >= 0:
                     summary = summary[:, self.summary_select_idx]
+                elif self.summary_idxs is not None:
+                    summary = summary[:, self.summary_idxs].flatten(1)
                 else:
                     summary = summary.flatten(1)
                 all_feat = y[:, patch_gen.num_skip :]

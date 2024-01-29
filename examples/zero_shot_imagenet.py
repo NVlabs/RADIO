@@ -133,11 +133,13 @@ def main(rank: int = 0, world_size: int = 1):
             t.update(world_size * args.batch_size)
 
     if world_size > 1:
+        rank_print('\tWaiting for all ranks to complete...')
         num_processed = torch.tensor(num_processed, device=device)
         dist.reduce(num_processed, dst=0, op=dist.ReduceOp.SUM)
 
         for k, acc in topks.items():
             dist.reduce(acc, dst=0, op=dist.ReduceOp.SUM)
+        rank_print('\tDone')
     rank_print('Done')
 
     rank_print('Accuracy:')
