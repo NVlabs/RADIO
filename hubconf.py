@@ -10,6 +10,7 @@ dependencies = ["torch", "timm", "einops"]
 
 import os
 from typing import Dict, Any
+import warnings
 
 import torch
 from torch.hub import load_state_dict_from_url
@@ -54,7 +55,11 @@ def radio_model(
         state_dict = chk["state_dict"]
     state_dict = clean_state_dict(state_dict)
 
-    mod.load_state_dict(get_prefix_state_dict(state_dict, "base_model."), strict=True)
+    key_warn = mod.load_state_dict(get_prefix_state_dict(state_dict, "base_model."), strict=False)
+    if key_warn.missing_keys:
+        warnings.warn(f'Missing keys in state dict: {key_warn.missing_keys}')
+    if key_warn.unexpected_keys:
+        warnings.warn(f'Unexpected keys in state dict: {key_warn.unexpected_keys}')
 
     conditioner = get_default_conditioner()
     conditioner.load_state_dict(get_prefix_state_dict(state_dict, "input_conditioner."))
