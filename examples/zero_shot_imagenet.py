@@ -65,14 +65,23 @@ def main(rank: int = 0, world_size: int = 1):
     parser.add_argument('-w', '--workers', default=8, type=int,
                         help='The number of data loader workers to use per GPU'
     )
-    parser.add_argument('--use-local-lib', default=False, action='store_true', help='Use the library locally, instead of through TorchHub')
-    parser.add_argument('--force-reload', default=False, action='store_true', help='Force reload RADIO library')
+    parser.add_argument('--vitdet-window-size', default=None, type=int,
+                        help='The ViTDet window size to use, if desired. Default: Global attention'
+    )
+    parser.add_argument('--use-local-lib', default=False, action='store_true',
+                        help='Use the library locally, instead of through TorchHub'
+    )
+    parser.add_argument('--force-reload', default=False, action='store_true',
+                        help='Force reload RADIO library'
+    )
 
     args, _ = parser.parse_known_args()
 
     rank_print('Loading model...')
 
-    ctor_args = dict(version=args.model_version, progress=True, adaptor_name=args.adaptor_name, return_spatial_features=False)
+    ctor_args = dict(version=args.model_version, progress=True, adaptor_name=args.adaptor_name, return_spatial_features=False,
+                     vitdet_window_size=args.vitdet_window_size,
+    )
     if not args.use_local_lib:
         model = hub.load('NVlabs/RADIO', 'radio_model', force_reload=args.force_reload, **ctor_args)
     else:
@@ -86,7 +95,11 @@ def main(rank: int = 0, world_size: int = 1):
     ds_builder = load_dataset_builder(args.dataset, trust_remote_code=True)
     num_examples = ds_builder.info.splits[args.split].num_examples
 
-    transform = get_standard_transform(args.resolution, args.resize_multiple)
+    resize_multiple = args.resize_multiple
+    if args.vitdet_window_size is not None:
+        resize_multiple *= args.vitdet_window_size
+
+    transform = get_standard_transform(args.resolution, resize_multiple)
     dataset = ds_builder.as_dataset(split=args.split)
     dataset = dataset.to_iterable_dataset(num_shards=world_size * max(1, args.workers))
     dataset = split_dataset_by_node(dataset, rank=rank, world_size=world_size)

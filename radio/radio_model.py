@@ -43,6 +43,15 @@ class RADIOModel(nn.Module):
     def return_both(self):
         return self.return_summary and self.return_spatial_features
 
+    @property
+    def num_summary_tokens(self):
+        patch_gen = getattr(self.model, "patch_generator", None)
+        if patch_gen is not None:
+            return patch_gen.num_skip
+        elif self.model.global_pool == 'avg':
+            return 0
+        return 1
+
     def forward(self, x: torch.Tensor):
         x = self.input_conditioner(x)
 
