@@ -27,7 +27,7 @@ from timm.models.vision_transformer import Attention, Mlp
 LAYER_STATS = dict()
 
 
-@torch.no_grad()
+@torch.inference_mode()
 def main():
     parser = argparse.ArgumentParser(description='Model Stats Demo')
     parser.add_argument('--use-hf', default=False, action='store_true',
@@ -78,7 +78,7 @@ def main():
     med_norm = spect_norms.median().item()
     avg_norm = spect_norms.mean().item()
 
-    print(f'Spectral - Max: {max_norm.item()}, Median: {med_norm}, Mean: {avg_norm}')
+    print(f'Spectral - Max: {max_norm.item():.3f}, Median: {med_norm:.3f}, Mean: {avg_norm:.3f}')
     print(f'Max Parameter: {names[max_norm_idx.item()]}')
     sorted_norms, sorted_idxs = torch.sort(spect_norms, descending=True)
     print(f'Norms: {sorted_norms.cpu()}')
@@ -90,7 +90,7 @@ def main():
             mod.register_forward_hook(_mlp_hook(n))
 
     transform = transforms.Compose([
-        transforms.Resize([378, 378]),
+        transforms.Resize([336, 336]),
         transforms.ToImage(),
         transforms.ToDtype(torch.float32, scale=True),
     ])
@@ -102,22 +102,28 @@ def main():
     dataset = dataset.map(lambda ex: dict(image=transform(ex['image'])))
     loader = DataLoader(dataset, batch_size=16, pin_memory=True, num_workers=8)
 
-    n_iter = 100
+    n_iter = 50
     for i, batch in tqdm(enumerate(loader), total=n_iter):
         if i == n_iter:
             break
 
-        images = batch['image'].cuda()
+        images = batch['image'].cuda(non_blocking=True)
 
-        model(images)
+        with torch.autocast('cuda', dtype=torch.bfloat16):
+            summary, features = model(images)
+
+        _add_stats(
+            name='Final Activations',
+            summary=_get_stats(summary),
+            features=_get_stats(features),
+        )
 
     _normalize_stats(n_iter)
 
     for layer_name, stats in LAYER_STATS.items():
         print(layer_name)
         for metric_name, metric in stats.items():
-            print(f'\t{metric_name} - {metric}')
-
+            print(f'\t{metric_name} - ' + ', '.join(f'{k}: {v:.04f}' for k, v in metric.items()))
 
 
 def _attn_hook(name: str):
@@ -165,11 +171,11 @@ def _get_stats(t: torch.Tensor):
 
     max_val = t.amax()
     min_val = t.amin()
-    mean_val = t.mean()
+    std_val, mean_val = torch.std_mean(t)
     median_val = t.median()
     norm = t.norm(dim=1).mean()
 
-    return dict(max_val=max_val, min_val=min_val, mean_val=mean_val, median_val=median_val, norm=norm)
+    return dict(max_val=max_val, min_val=min_val, mean_val=mean_val, median_val=median_val, norm=norm, std=std_val)
 
 
 def _add_stats(name: str, **kwargs):
