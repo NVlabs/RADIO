@@ -29,7 +29,7 @@ from datasets.distributed import split_dataset_by_node
 
 from open_clip import IMAGENET_CLASSNAMES, OPENAI_IMAGENET_TEMPLATES
 
-from common import collate, round_up, get_standard_transform, get_rank, get_world_size, rank_print, run_rank_0_first
+from common import collate, round_up, get_standard_transform, get_rank, get_world_size, rank_print, load_model
 
 
 def main(rank: int = 0, world_size: int = 1):
@@ -79,16 +79,8 @@ def main(rank: int = 0, world_size: int = 1):
     args, _ = parser.parse_known_args()
 
     rank_print('Loading model...')
-
-    ctor_args = dict(version=args.model_version, progress=True, adaptor_names=args.adaptor_name, return_spatial_features=False,
-                     vitdet_window_size=args.vitdet_window_size,
-    )
-    if not args.use_local_lib:
-        model = hub.load('NVlabs/RADIO', 'radio_model', force_reload=args.force_reload, **ctor_args)
-    else:
-        from hubconf import radio_model
-        model = radio_model(**ctor_args)
-
+    model, preprocessor, info = load_model(args.model_version, adaptor_name=args.adaptor_name, return_spatial_features=False,
+                                           vitdet_window_size=args.vitdet_window_size)
     model.to(device=device).eval()
     rank_print('Done')
 
@@ -102,7 +94,7 @@ def main(rank: int = 0, world_size: int = 1):
     if args.resize_multiple is None:
         args.resize_multiple = model.min_resolution_step
 
-    transform = get_standard_transform(args.resolution, args.resize_multiple)
+    transform = get_standard_transform(args.resolution, args.resize_multiple, preprocessor=preprocessor)
     dataset = ds_builder.as_dataset(split=args.split)
     dataset = dataset.to_iterable_dataset(num_shards=world_size * max(1, args.workers))
     dataset = split_dataset_by_node(dataset, rank=rank, world_size=world_size)
