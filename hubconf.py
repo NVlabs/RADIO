@@ -9,7 +9,7 @@
 dependencies = ["torch", "timm", "einops"]
 
 import os
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 import warnings
 
 import torch
@@ -20,7 +20,7 @@ from timm.models import clean_state_dict
 from radio.adaptors import adaptor_registry
 from radio.radio_model import RADIOModel, create_model_from_args
 from radio.input_conditioner import get_default_conditioner
-
+from radio.vitdet import apply_vitdet_arch, VitDetArgs
 
 resource_map = {
     "radio_v1": "https://huggingface.co/nvidia/RADIO/resolve/main/radio_v1.pth.tar?download=true"
@@ -35,6 +35,7 @@ def radio_model(
     return_summary: bool = True,
     return_spatial_features: bool = True,
     adaptor_name: str = None,
+    vitdet_window_size: Optional[int] = None,
     **kwargs,
 ) -> RADIOModel:
     if not version:
@@ -77,6 +78,9 @@ def radio_model(
         return_spatial_features=return_spatial_features,
         summary_idxs=summary_idxs,
     )
+
+    if vitdet_window_size is not None:
+        apply_vitdet_arch(mod, VitDetArgs(vitdet_window_size, radio.num_summary_tokens))
 
     if adaptor_name:
         teachers = chk["args"].teachers
