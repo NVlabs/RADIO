@@ -23,7 +23,8 @@ from .eradio_model import eradio
 from .radio_model import create_model_from_args
 from .radio_model import RADIOModel as RADIOModelBase
 from .input_conditioner import get_default_conditioner, InputConditioner
-
+# Register extra models
+from .extra_timm_models import *
 
 class RADIOConfig(PretrainedConfig):
     """Pretrained Hugging Face configuration for RADIO models."""
