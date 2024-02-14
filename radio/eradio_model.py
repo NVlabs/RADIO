@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-# Copyright (c) 2023-2024, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2024, NVIDIA CORPORATION.  All rights reserved.
 #
 # NVIDIA CORPORATION and its licensors retain all intellectual property
 # and proprietary rights in and to this software, related documentation
@@ -8,8 +8,12 @@
 # distribution of this software and related documentation without an express
 # license agreement from NVIDIA CORPORATION is strictly prohibited.
 
-# Created by Pavlo Molchanov, LPR - DL Efficiency Research team
-# based on Fastervit1 from LPR
+# E-RADIO (FasterViTv2) model from
+# Mike Ranzinger, Greg Heinrich, Jan Kautz, and Pavlo Molchanov. "AM-RADIO: Agglomerative Model--Reduce All Domains Into One." arXiv preprint arXiv:2312.06709 (2023).
+
+# based on FasterViT, Swin Transformer, YOLOv8
+# FasterViT:
+# Ali Hatamizadeh, Greg Heinrich, Hongxu Yin, Andrew Tao, Jose M. Alvarez, Jan Kautz, and Pavlo Molchanov. "FasterViT: Fast Vision Transformers with Hierarchical Attention." arXiv preprint arXiv:2306.06189 (2023).
 
 import torch
 import torch.nn as nn
@@ -18,15 +22,104 @@ from timm.models.registry import register_model
 from timm.models.layers import trunc_normal_, DropPath, LayerNorm2d
 import numpy as np
 import torch.nn.functional as F
-from .block import C2f
+import warnings
 
-TRT = False  # should help for TRT
+SIMPLER_UP_TOWER = False
 
-import pickle
+#######################
+## Codebase from YOLOv8
+## BEGINNING
+#######################
 
-global bias_indx
-bias_indx = -1
-DEBUG = False
+class C2f(nn.Module):
+    """Faster Implementation of CSP Bottleneck with 2 convolutions."""
+    """From YOLOv8 codebase"""
+    def __init__(self, c1, c2, n=1, shortcut=False, g=1, e=0.5, drop_path=None):  # ch_in, ch_out, number, shortcut, groups, expansion
+        super().__init__()
+        if drop_path is None:
+            drop_path = [0.0] * n
+
+        self.c = int(c2 * e)  # hidden channels
+        self.cv1 = Conv(c1, 2 * self.c, 1, 1)
+        self.cv2 = Conv((2 + n) * self.c, c2, 1)  # optional act=FReLU(c2)
+        self.m = nn.ModuleList(Bottleneck(self.c, self.c, shortcut, g, k=((3, 3), (3, 3)), e=1.0, drop_path=drop_path[i]) for i in range(n))
+
+    def forward(self, x):
+        """Forward pass through C2f layer."""
+        y = list(self.cv1(x).chunk(2, 1))
+        y.extend(m(y[-1]) for m in self.m)
+        return self.cv2(torch.cat(y, 1))
+
+    def forward_split(self, x):
+        """Forward pass using split() instead of chunk()."""
+        y = list(self.cv1(x).split((self.c, self.c), 1))
+        y.extend(m(y[-1]) for m in self.m)
+        return self.cv2(torch.cat(y, 1))
+
+class Bottleneck(nn.Module):
+    """Standard bottleneck."""
+
+    def __init__(self, c1, c2, shortcut=True, g=1, k=(3, 3), e=0.5, drop_path=0.0):  # ch_in, ch_out, shortcut, groups, kernels, expand
+        super().__init__()
+        c_ = int(c2 * e)  # hidden channels
+        self.cv1 = Conv(c1, c_, k[0], 1)
+        self.cv2 = Conv(c_, c2, k[1], 1, g=g)
+        self.add = shortcut and c1 == c2
+        self.drop_path1 = DropPath(drop_path) if drop_path > 0. else nn.Identity()
+
+    def forward(self, x):
+        """'forward()' applies the YOLOv5 FPN to input data."""
+        return x + self.drop_path1(self.cv2(self.cv1(x))) if self.add else self.cv2(self.cv1(x))
+
+
+class Conv(nn.Module):
+    """Modified to support layer fusion"""
+    default_act = nn.SiLU()  # default activation
+
+    def __init__(self, a, b, kernel_size=1, stride=1, padding=None, g=1, dilation=1, bn_weight_init=1, bias=False, act=True):
+        super().__init__()
+
+        self.conv = torch.nn.Conv2d(a, b, kernel_size, stride, autopad(kernel_size, padding, dilation), dilation, g, bias=False)
+        if 1:
+            self.bn = torch.nn.BatchNorm2d(b)
+            torch.nn.init.constant_(self.bn.weight, bn_weight_init)
+            torch.nn.init.constant_(self.bn.bias, 0)
+        self.act = self.default_act if act is True else act if isinstance(act, nn.Module) else nn.Identity()
+
+
+    def forward(self,x):
+        x = self.conv(x)
+        x = self.bn(x)
+        x = self.act(x)
+        return x
+
+    @torch.no_grad()
+    def switch_to_deploy(self):
+        # return 1
+        c, bn = self.conv, self.bn
+        w = bn.weight / (bn.running_var + bn.eps) ** 0.5
+        w = c.weight * w[:, None, None, None]
+        b = bn.bias - bn.running_mean * bn.weight / \
+            (bn.running_var + bn.eps)**0.5
+
+        self.conv.weight.data.copy_(w)
+        self.conv.bias = nn.Parameter(b)
+
+        self.bn = nn.Identity()
+
+def autopad(k, p=None, d=1):  # kernel, padding, dilation
+    """Pad to 'same' shape outputs."""
+    if d > 1:
+        k = d * (k - 1) + 1 if isinstance(k, int) else [d * (x - 1) + 1 for x in k]  # actual kernel-size
+    if p is None:
+        p = k // 2 if isinstance(k, int) else [x // 2 for x in k]  # auto-pad
+    return p
+
+
+#######################
+## Codebase from YOLOv8
+## END
+#######################
 
 
 def pixel_unshuffle(data, factor=2):
@@ -63,6 +156,7 @@ def window_partition(x, window_size):
     else:
         pad_h = (window_size - H % window_size) % window_size
         pad_w = (window_size - W % window_size) % window_size
+        #interpolate features
         if pad_h > 0 or pad_w > 0:
             x = F.pad(x, (0, pad_w, 0, pad_h, 0, 0, 0, 0))
         Hp, Wp = H + pad_h, W + pad_w
@@ -106,8 +200,6 @@ class Conv2d_BN(nn.Module):
 
     @torch.no_grad()
     def switch_to_deploy(self):
-
-        # return 1
         if not isinstance(self.bn, nn.Identity):
             c, bn = self.conv, self.bn
             w = bn.weight / (bn.running_var + bn.eps) ** 0.5
@@ -149,25 +241,47 @@ def window_reverse(windows, window_size, H, W, pad_hw):
 
 
 class PosEmbMLPSwinv2D(nn.Module):
+    """
+    2D positional embedding from Swin Transformer v2
+    Added functionality to store the positional embedding in the model and not recompute it every time
+    """
     def __init__(
-        self, window_size, pretrained_window_size, num_heads, seq_length, no_log=False
+        self, window_size, pretrained_window_size, num_heads, seq_length, no_log=False, cpb_mlp_hidden=512,
     ):
         super().__init__()
         self.window_size = window_size
         self.num_heads = num_heads
         # mlp to generate continuous relative position bias
         self.cpb_mlp = nn.Sequential(
-            nn.Linear(2, 512, bias=True),
+            nn.Linear(2, cpb_mlp_hidden, bias=True),
             nn.ReLU(inplace=True),
-            nn.Linear(512, num_heads, bias=False),
+            nn.Linear(cpb_mlp_hidden, num_heads, bias=False),
         )
 
-        # get relative_coords_table
+        self.grid_exists = False
+        self.seq_length = seq_length
+        self.deploy = False
+        self.num_heads = num_heads
+        self.no_log = no_log
+        self.pretrained_window_size = pretrained_window_size
+        self.relative_bias_window_size = window_size
+
+        relative_coords_table, relative_position_index, relative_bias = self.relative_bias_initialization(window_size, num_heads,
+                                                                                                     pretrained_window_size, seq_length,
+                                                                                                     no_log)
+
+        self.register_buffer("relative_coords_table", relative_coords_table)
+        self.register_buffer("relative_position_index", relative_position_index)
+        self.register_buffer("relative_bias", relative_bias)  # for EMA
+
+    def relative_bias_initialization(self, window_size, num_heads, pretrained_window_size, seq_length, no_log):
+        # as in separate function to support window size chage after model weights loading
+
         relative_coords_h = torch.arange(
-            -(self.window_size[0] - 1), self.window_size[0], dtype=torch.float32
+            -(window_size[0] - 1), window_size[0], dtype=torch.float32
         )
         relative_coords_w = torch.arange(
-            -(self.window_size[1] - 1), self.window_size[1], dtype=torch.float32
+            -(window_size[1] - 1), window_size[1], dtype=torch.float32
         )
         relative_coords_table = (
             torch.stack(torch.meshgrid([relative_coords_h, relative_coords_w]))
@@ -190,8 +304,6 @@ class PosEmbMLPSwinv2D(nn.Module):
                 / np.log2(8)
             )
 
-        self.register_buffer("relative_coords_table", relative_coords_table)
-
         # get pair-wise relative position index for each token inside the window
         coords_h = torch.arange(self.window_size[0])
         coords_w = torch.arange(self.window_size[1])
@@ -207,15 +319,13 @@ class PosEmbMLPSwinv2D(nn.Module):
         relative_coords[:, :, 1] += self.window_size[1] - 1
         relative_coords[:, :, 0] *= 2 * self.window_size[1] - 1
         relative_position_index = relative_coords.sum(-1)  # Wh*Ww, Wh*Ww
-        self.register_buffer("relative_position_index", relative_position_index)
-
-        self.grid_exists = False
-
-        self.deploy = False
 
         relative_bias = torch.zeros(1, num_heads, seq_length, seq_length)
-        self.seq_length = seq_length
-        self.register_buffer("relative_bias", relative_bias)  # for EMA
+
+        self.relative_bias_window_size = window_size
+
+        return relative_coords_table, relative_position_index, relative_bias
+
 
     def switch_to_deploy(self):
         self.deploy = True
@@ -224,19 +334,25 @@ class PosEmbMLPSwinv2D(nn.Module):
     def forward(self, input_tensor):
         # for efficiency, we want this forward to be folded into a single operation (sum)
         # if resolution stays the same, then we dont need to recompute MLP layers
-        #
-        # to dynamically adjust patch size over the step
-        # if not (input_tensor.shape[1:] == self.relative_bias.shape[1:]):
-        #     self.grid_exists = False
 
-        if self.training:
+        if not self.deploy or self.training:
             self.grid_exists = False
+
+        #compare if all elements in self.window_size list match those in self.relative_bias_window_size
+        if not all([self.window_size[i] == self.relative_bias_window_size[i] for i in range(len(self.window_size))]):
+            relative_coords_table, relative_position_index, relative_bias = self.relative_bias_initialization(self.window_size, self.num_heads,
+                                                                                                        self.pretrained_window_size, self.seq_length,
+                                                                                                        self.no_log)
+
+            self.relative_coords_table = relative_coords_table.to(self.relative_coords_table.device)
+            self.relative_position_index = relative_position_index.to(self.relative_position_index.device)
+            self.relative_bias = relative_bias.to(self.relative_bias.device)
 
         if self.deploy and self.grid_exists:
             input_tensor += self.relative_bias
             return input_tensor
 
-        if not self.grid_exists:
+        if 1:
             self.grid_exists = True
 
             relative_position_bias_table = self.cpb_mlp(
@@ -279,142 +395,40 @@ class GRAAttentionBlock(nn.Module):
         conv_base=False,
         do_windowing=True,
         multi_query=False,
+        cpb_mlp_hidden=512,
     ) -> None:
         super().__init__()
 
-        dim = dim_in
-        # conv_base = True
-        SHUFFLE = True
-        SHUFFLE = False
+
         self.do_windowing = do_windowing
 
         if do_windowing:
-            if SHUFFLE:
-                self.downsample_op = (
-                    torch.nn.PixelUnshuffle(subsample_ratio)
-                    if subsample_ratio > 1
-                    else torch.nn.Identity()
-                )
-                self.downsample_mixer = (
-                    nn.Conv2d(
-                        dim_in * (subsample_ratio * subsample_ratio),
-                        dim_in * (dim_ratio),
-                        kernel_size=1,
-                        stride=1,
-                        padding=0,
-                        bias=False,
-                    )
-                    if dim * dim_ratio != dim * subsample_ratio * subsample_ratio
-                    else torch.nn.Identity()
-                )
-            else:
-                if conv_base:
-                    self.downsample_op = (
-                        nn.Conv2d(
-                            dim_in,
-                            dim_out,
-                            kernel_size=subsample_ratio,
-                            stride=subsample_ratio,
-                        )
-                        if subsample_ratio > 1
-                        else nn.Identity()
-                    )
+            if conv_base:
+                    self.downsample_op = nn.Conv2d(dim_in, dim_out, kernel_size=subsample_ratio, stride=subsample_ratio) if subsample_ratio > 1 else nn.Identity()
                     self.downsample_mixer = nn.Identity()
-                else:
-                    self.downsample_op = (
-                        nn.AvgPool2d(
-                            kernel_size=subsample_ratio, stride=subsample_ratio
-                        )
-                        if subsample_ratio > 1
-                        else nn.Identity()
-                    )
-                    self.downsample_mixer = (
-                        Conv2d_BN(dim_in, dim_out, kernel_size=1, stride=1)
-                        if subsample_ratio > 1
-                        else nn.Identity()
-                    )
-
-        if do_windowing:
-            if SHUFFLE:
-                self.upsample_mixer = (
-                    nn.Conv2d(
-                        dim_in * dim_ratio,
-                        dim_in * (subsample_ratio * subsample_ratio),
-                        kernel_size=1,
-                        stride=1,
-                        padding=0,
-                        bias=False,
-                    )
-                    if dim * dim_ratio != dim * subsample_ratio * subsample_ratio
-                    else torch.nn.Identity()
-                )
-                self.upsample_op = (
-                    torch.nn.PixelShuffle(subsample_ratio)
-                    if subsample_ratio > 1
-                    else torch.nn.Identity()
-                )
-            else:
-                if conv_base:
                     self.upsample_mixer = nn.Identity()
-                    self.upsample_op = (
-                        nn.ConvTranspose2d(
-                            dim_in,
-                            dim_out,
-                            kernel_size=subsample_ratio,
-                            stride=subsample_ratio,
-                        )
-                        if subsample_ratio > 1
-                        else nn.Identity()
-                    )
-                else:
-                    self.upsample_mixer = (
-                        nn.Upsample(scale_factor=subsample_ratio, mode="nearest")
-                        if subsample_ratio > 1
-                        else nn.Identity()
-                    )
-                    self.upsample_op = (
-                        Conv2d_BN(
-                            dim_in,
-                            dim_out,
-                            kernel_size=1,
-                            stride=1,
-                            padding=0,
-                            bias=False,
-                        )
-                        if subsample_ratio > 1
-                        else nn.Identity()
-                    )
+                    self.upsample_op = nn.ConvTranspose2d(dim_in, dim_out, kernel_size=subsample_ratio, stride=subsample_ratio) if subsample_ratio > 1 else nn.Identity()
+            else:
+                self.downsample_op = nn.AvgPool2d(kernel_size=subsample_ratio, stride=subsample_ratio) if subsample_ratio > 1 else nn.Identity()
+                self.downsample_mixer = Conv2d_BN(dim_in, dim_out, kernel_size=1, stride=1) if subsample_ratio > 1 else nn.Identity()
+                self.upsample_mixer = nn.Upsample(scale_factor=subsample_ratio, mode='nearest') if subsample_ratio > 1 else nn.Identity()
+                self.upsample_op = Conv2d_BN(dim_in, dim_out, kernel_size=1, stride=1, padding=0, bias=False) if subsample_ratio > 1 else nn.Identity()
 
         self.window_size = window_size
 
         self.norm1 = norm_layer(dim_in)
-        if DEBUG:
-            print(
-                f"GRAAttentionBlock: input_resolution: , window_size: {window_size}, dim_in: {dim_in}, dim_out: {dim_out}, num_heads: {num_heads}, drop_path: {drop_path}, qk_scale: {qk_scale}, qkv_bias: {qkv_bias}, layer_scale: {layer_scale}"
-            )
 
         self.attn = WindowAttention(
             dim_in,
-            num_heads=num_heads,
-            qkv_bias=qkv_bias,
-            qk_scale=qk_scale,
+            num_heads=num_heads, qkv_bias=qkv_bias, qk_scale=qk_scale,
             resolution=window_size,
-            seq_length=window_size ** 2,
-            dim_out=dim_in,
-            multi_query=multi_query,
-        )
-        if DEBUG:
-            print(
-                f"Attention: dim_in: {dim_in}, num_heads: {num_heads}, qkv_bias: {qkv_bias}, qk_scale: {qk_scale}, resolution: {window_size}, seq_length: {window_size**2}, dim_out: {dim_in}"
-            )
-            print(f"drop_path: {drop_path}, layer_scale: {layer_scale}")
+            seq_length=window_size**2, dim_out=dim_in, multi_query=multi_query,
+            cpb_mlp_hidden=cpb_mlp_hidden)
 
-        self.drop_path1 = DropPath(drop_path) if drop_path > 0.0 else nn.Identity()
+        self.drop_path1 = DropPath(drop_path) if drop_path > 0. else nn.Identity()
 
         use_layer_scale = layer_scale is not None and type(layer_scale) in [int, float]
-        self.gamma1 = (
-            nn.Parameter(layer_scale * torch.ones(dim_in)) if use_layer_scale else 1
-        )
+        self.gamma1 = nn.Parameter(layer_scale * torch.ones(dim_in))  if use_layer_scale else 1
 
         ### mlp layer
         mlp_ratio = 4
@@ -422,26 +436,13 @@ class GRAAttentionBlock(nn.Module):
         mlp_hidden_dim = int(dim_in * mlp_ratio)
 
         activation = nn.GELU if not use_swiglu else SwiGLU
-        mlp_hidden_dim = (
-            int((4 * dim_in * 1 / 2) / 64) * 64 if use_swiglu else mlp_hidden_dim
-        )
+        mlp_hidden_dim = int((4 * dim_in * 1 / 2) / 64) * 64 if use_swiglu else mlp_hidden_dim
 
-        self.mlp = Mlp(
-            in_features=dim_in,
-            hidden_features=mlp_hidden_dim,
-            act_layer=activation,
-            use_swiglu=use_swiglu,
-        )
+        self.mlp = Mlp(in_features=dim_in, hidden_features=mlp_hidden_dim, act_layer=activation, use_swiglu=use_swiglu)
 
-        self.gamma2 = (
-            nn.Parameter(layer_scale * torch.ones(dim_in)) if layer_scale else 1
-        )
-        self.drop_path2 = DropPath(drop_path) if drop_path > 0.0 else nn.Identity()
-        if DEBUG:
-            print(
-                f"MLP layer: dim_in: {dim_in}, dim_out: {dim_in}, mlp_hidden_dim: {mlp_hidden_dim}"
-            )
-            print(f"drop_path: {drop_path}, layer_scale: {layer_scale}")
+        self.gamma2 = nn.Parameter(layer_scale * torch.ones(dim_in)) if layer_scale else 1
+        self.drop_path2=DropPath(drop_path) if drop_path > 0. else nn.Identity()
+
 
     def forward(self, x):
         skip_connection = x
@@ -514,6 +515,7 @@ class MultiResolutionAttention(nn.Module):
         use_swiglu=True,
         multi_query=False,
         conv_base=False,
+        cpb_mlp_hidden=512
     ) -> None:
         """
         Args:
@@ -552,6 +554,7 @@ class MultiResolutionAttention(nn.Module):
                     do_windowing=do_windowing,
                     multi_query=multi_query,
                     conv_base=conv_base,
+                    cpb_mlp_hidden=cpb_mlp_hidden
                 ),
             )
 
@@ -594,16 +597,13 @@ class Mlp(nn.Module):
         )
         self.act = act_layer()
         self.fc2 = nn.Linear(hidden_features, out_features, bias=False)
-        # self.drop = GaussianDropout(drop)
 
     def forward(self, x):
         x_size = x.size()
         x = x.view(-1, x_size[-1])
         x = self.fc1(x)
         x = self.act(x)
-        # x = self.drop(x)
         x = self.fc2(x)
-        # x = self.drop(x)
         x = x.view(x_size)
         return x
 
@@ -621,7 +621,7 @@ class Downsample(nn.Module):
         """
         Args:
             dim: feature size dimension.
-            shuffle: idea with
+            shuffle: idea with pixel unshuffling instead for resizing
             keep_dim: bool argument for maintaining the resolution.
         """
 
@@ -632,8 +632,6 @@ class Downsample(nn.Module):
             self.norm = lambda x: pixel_unshuffle(x, factor=2)
             self.reduction = Conv2d_BN(dim * 4, dim_out, 1, 1, 0, bias=False)
         else:
-            # removed layer norm for better, in this formulation we are getting 10% better speed
-            # LayerNorm for high resolution inputs will be a pain as it pools over the entire spatial dimension
             self.norm = nn.Identity()
             self.reduction = Conv2d_BN(dim, dim_out, 3, 2, 1, bias=False)
 
@@ -646,6 +644,8 @@ class Downsample(nn.Module):
 class PatchEmbed(nn.Module):
     """
     Patch embedding block
+    Used to convert image into an initial set of feature maps with lower resolution
+
     """
 
     def __init__(self, in_chans=3, in_dim=64, dim=96, shuffle_down=False):
@@ -669,12 +669,6 @@ class PatchEmbed(nn.Module):
             )
         else:
             self.proj = lambda x: pixel_unshuffle(x, factor=4)
-
-            # self.conv_down = nn.Sequential(Conv2d_BN(in_chans*16, in_dim, 3, 1, 1),
-            #                                nn.SiLU(),
-            #                                Conv2d_BN(in_dim, dim, 3, 1, 1),
-            #                                nn.SiLU(),
-            #                                )
             self.conv_down = nn.Sequential(
                 Conv2d_BN(in_chans * 16, dim, 3, 1, 1), nn.ReLU(),
             )
@@ -689,33 +683,19 @@ class ConvBlock(nn.Module):
     """
     Convolutional block, used in first couple of stages
     Experimented with plan resnet-18 like modules, they are the best in terms of throughput
-    Experimented with RepVGG, dont see significant improvement in accuracy
     Finally, YOLOv8 idea seem to work fine (resnet-18 like block with squeezed feature dimension, and feature concatendation at the end)
     """
-
-    def __init__(
-        self, dim, drop_path=0.0, layer_scale=None, kernel_size=3, rep_vgg=False
-    ):
+    def __init__(self, dim,
+                 drop_path=0.,
+                 layer_scale=None,
+                 kernel_size=3,
+                 ):
         super().__init__()
-        self.rep_vgg = rep_vgg
-        if not rep_vgg:
-            self.conv1 = Conv2d_BN(
-                dim, dim, kernel_size=kernel_size, stride=1, padding=1
-            )
-            self.act1 = nn.GELU()
-        else:
-            self.conv1 = RepVGGBlock(
-                dim, dim, kernel_size=kernel_size, stride=1, padding=1, groups=1
-            )
 
-        if not rep_vgg:
-            self.conv2 = Conv2d_BN(
-                dim, dim, kernel_size=kernel_size, stride=1, padding=1
-            )
-        else:
-            self.conv2 = RepVGGBlock(
-                dim, dim, kernel_size=kernel_size, stride=1, padding=1, groups=1
-            )
+        self.conv1 = Conv2d_BN(dim, dim, kernel_size=kernel_size, stride=1, padding=1)
+        self.act1 = nn.GELU()
+
+        self.conv2 = Conv2d_BN(dim, dim, kernel_size=kernel_size, stride=1, padding=1)
 
         self.layer_scale = layer_scale
         if layer_scale is not None and type(layer_scale) in [int, float]:
@@ -723,17 +703,15 @@ class ConvBlock(nn.Module):
             self.layer_scale = True
         else:
             self.layer_scale = False
-        self.drop_path = DropPath(drop_path) if drop_path > 0.0 else nn.Identity()
+        self.drop_path = DropPath(drop_path) if drop_path > 0. else nn.Identity()
 
     def forward(self, x):
         input = x
-        if not self.rep_vgg:
-            x = self.conv1(x)
-            x = self.act1(x)
-            x = self.conv2(x)
-        else:
-            x = self.conv1(x)
-            x = self.conv2(x)
+
+        x = self.conv1(x)
+        x = self.act1(x)
+        x = self.conv2(x)
+
         if self.layer_scale:
             x = x * self.gamma.view(1, -1, 1, 1)
         x = input + self.drop_path(x)
@@ -743,9 +721,6 @@ class ConvBlock(nn.Module):
 class WindowAttention(nn.Module):
     # Windowed Attention from SwinV2
     # use a MLP trick to deal with various input image resolutions, then fold it to improve speed
-    # tested multi-querry attention, but it is not as good as full attention:
-    # look into palm: https://github.com/lucidrains/PaLM-pytorch/blob/main/palm_pytorch/palm_pytorch.py
-    # single kv attention, mlp in parallel (didnt improve speed)
 
     def __init__(
         self,
@@ -757,6 +732,7 @@ class WindowAttention(nn.Module):
         seq_length=0,
         dim_out=None,
         multi_query=False,
+        cpb_mlp_hidden=512,
     ):
         # taken from EdgeViT and tweaked with attention bias.
         super().__init__()
@@ -771,12 +747,7 @@ class WindowAttention(nn.Module):
 
         self.scale = qk_scale or head_dim ** -0.5
         if not multi_query:
-            if TRT:
-                self.q = nn.Linear(dim, dim, bias=qkv_bias)
-                self.k = nn.Linear(dim, dim, bias=qkv_bias)
-                self.v = nn.Linear(dim, dim, bias=qkv_bias)
-            else:
-                self.qkv = nn.Linear(dim, dim * 3, bias=qkv_bias)
+            self.qkv = nn.Linear(dim, dim * 3, bias=qkv_bias)
         else:
             self.qkv = nn.Linear(dim, dim + 2 * self.head_dim, bias=qkv_bias)
 
@@ -787,6 +758,7 @@ class WindowAttention(nn.Module):
             pretrained_window_size=[resolution, resolution],
             num_heads=num_heads,
             seq_length=seq_length,
+            cpb_mlp_hidden=cpb_mlp_hidden,
         )
 
         self.resolution = resolution
@@ -795,29 +767,12 @@ class WindowAttention(nn.Module):
         B, N, C = x.shape
 
         if not self.multi_query:
-            if TRT:
-                q = (
-                    self.q(x)
-                    .reshape(B, -1, self.num_heads, C // self.num_heads)
-                    .permute(0, 2, 1, 3)
-                )
-                k = (
-                    self.k(x)
-                    .reshape(B, -1, self.num_heads, C // self.num_heads)
-                    .permute(0, 2, 1, 3)
-                )
-                v = (
-                    self.v(x)
-                    .reshape(B, -1, self.num_heads, C // self.num_heads)
-                    .permute(0, 2, 1, 3)
-                )
-            else:
-                qkv = (
+            qkv = (
                     self.qkv(x)
                     .reshape(B, -1, 3, self.num_heads, C // self.num_heads)
                     .permute(2, 0, 3, 1, 4)
                 )
-                q, k, v = qkv[0], qkv[1], qkv[2]
+            q, k, v = qkv[0], qkv[1], qkv[2]
         else:
             qkv = self.qkv(x)
             (q, k, v) = qkv.split(
@@ -864,10 +819,10 @@ class FasterViTLayer(nn.Module):
         sr_ratio=1,
         multi_query=False,
         use_swiglu=True,
-        rep_vgg=False,
         yolo_arch=False,
         downsample_shuffle=False,
         conv_base=False,
+        cpb_mlp_hidden=512,
     ):
         """
         Args:
@@ -899,12 +854,11 @@ class FasterViTLayer(nn.Module):
                             drop_path=drop_path[i]
                             if isinstance(drop_path, list)
                             else drop_path,
-                            layer_scale=layer_scale_conv,
-                            rep_vgg=rep_vgg,
-                        )
+                            layer_scale=layer_scale_conv                        )
                         for i in range(depth)
                     ]
                 )
+                self.blocks = nn.Sequential(*self.blocks)
             else:
                 self.blocks = C2f(dim, dim, n=depth, shortcut=True, e=0.5)
                 self.yolo_arch = True
@@ -915,6 +869,7 @@ class FasterViTLayer(nn.Module):
             self.do_single_windowing = True
             if not isinstance(sr_ratio, list):
                 sr_ratio = [sr_ratio]
+            self.sr_ratio = sr_ratio
             if any([sr != 1 for sr in sr_ratio]) or len(set(window_size)) > 1:
                 self.do_single_windowing = False
                 do_windowing = True
@@ -943,8 +898,11 @@ class FasterViTLayer(nn.Module):
                         do_windowing=do_windowing,
                         multi_query=multi_query,
                         conv_base=conv_base,
+                        cpb_mlp_hidden=cpb_mlp_hidden,
                     )
                 )
+
+            self.blocks = nn.Sequential(*self.blocks)
 
         self.transformer = not conv
 
@@ -952,26 +910,105 @@ class FasterViTLayer(nn.Module):
             None if not downsample else Downsample(dim=dim, shuffle=downsample_shuffle)
         )
 
+
     def forward(self, x):
         B, C, H, W = x.shape
+
+        # do padding for transforemr
+        interpolate = True
+        if self.transformer and interpolate:
+            # Windowed Attention will split feature map into windows with the size of window_size x window_size
+            # if the resolution is not divisible by window_size, we need to interpolate the feature map
+            # can be done via padding, but doing so after training hurts the model performance.
+            # interpolation affects the performance as well, but not as much as padding
+            if isinstance(self.window_size, list) or isinstance(self.window_size, tuple):
+                current_max_window_size = max(self.window_size)
+            else:
+                current_max_window_size = self.window_size
+
+            max_window_size = max([res_upsample*current_max_window_size for res_upsample in self.sr_ratio])
+            if H % max_window_size != 0 or W % max_window_size != 0:
+                new_h = int(np.ceil(H/max_window_size)*max_window_size)
+                new_w = int(np.ceil(W/max_window_size)*max_window_size)
+                x = F.interpolate(x, size=(new_h, new_w), mode='nearest')
+                warnings.warn(f"Choosen window size is not optimal for given resolution. Interpolation of features maps will be done and it can affect the performance. Max window size is {max_window_size}, feature map size is {H}x{W}, interpolated feature map size is {new_h}x{new_w}.")
+
 
         if self.transformer and self.do_single_windowing:
             H, W = x.shape[2], x.shape[3]
             x, pad_hw = window_partition(x, self.window_size)
 
-        if not self.yolo_arch:
-            for bn, blk in enumerate(self.blocks):
-                x = blk(x)
-        else:
-            x = self.blocks(x)
+        x = self.blocks(x)
+        # if not self.yolo_arch:
+        #     for bn, blk in enumerate(self.blocks):
+        #         x = blk(x)
+        # else:
+        #     x = self.blocks(x)
 
         if self.transformer and self.do_single_windowing:
             x = window_reverse(x, self.window_size, H, W, pad_hw)
+
+        if self.transformer and interpolate:
+            #lets keep original resolution, might be not ideal, but for the upsampling tower we need to keep the expected resolution.
+            x = F.interpolate(x, size=(H, W), mode='nearest')
 
         if self.downsample is None:
             return x, x
 
         return self.downsample(x), x  # changing to output pre downsampled features
+
+
+class HiResNeck(nn.Module):
+    """
+    The block is used to output dense features from all stages
+    Otherwise, by default, only the last stage features are returned with FasterViTv2
+    """
+    def __init__(self, dim, depths, neck_start_stage, full_features_head_dim):
+
+        '''
+        Hi Resolution neck to support output of high res features that are useful for dense tasks.
+        depths - total number of layers in the base model
+        neck_start_stage - when to start the neck, 0 - start from the first stage, 1 - start from the second stage etc.
+                            earlier layers result in higher resolution features at the cost of compute
+        full_features_head_dim - number of channels in the dense features head
+        '''
+        # create feature projection layers for segmentation output
+        self.neck_features_proj = nn.ModuleList()
+        self.neck_start_stage = neck_start_stage
+        upsample_ratio = 1
+        for i in range(len(depths)):
+            level_n_features_output = int(dim * 2 ** i)
+
+            if self.neck_start_stage > i: continue
+
+            if (upsample_ratio > 1) or full_features_head_dim!=level_n_features_output:
+                feature_projection = nn.Sequential()
+                feature_projection.add_module("norm",nn.BatchNorm2d(level_n_features_output)) #fast, but worse
+
+                feature_projection.add_module("dconv", nn.ConvTranspose2d(level_n_features_output,
+                                                                        full_features_head_dim, kernel_size=upsample_ratio, stride=upsample_ratio))
+            else:
+                feature_projection = nn.Sequential()
+
+            self.neck_features_proj.append(feature_projection)
+
+            if i>0 and self.levels[i-1].downsample is not None:
+                upsample_ratio *= 2
+
+    def forward(self, x, il_level=-1, full_features=None):
+        if self.neck_start_stage > il_level:
+            return full_features
+
+        if full_features is None:
+            full_features = self.neck_features_proj[il_level - self.neck_start_stage](x)
+        else:
+            #upsample torch tensor x to match full_features size, and add to full_features
+            feature_projection = self.neck_features_proj[il_level - self.neck_start_stage](x)
+            if feature_projection.shape[2] != full_features.shape[2] or feature_projection.shape[3] != full_features.shape[3]:
+                feature_projection = torch.nn.functional.pad(feature_projection, ( 0, -feature_projection.shape[3] + full_features.shape[3], 0, -feature_projection.shape[2] + full_features.shape[2]))
+            full_features += feature_projection
+        return full_features
+
 
 
 class FasterViT(nn.Module):
@@ -1001,7 +1038,6 @@ class FasterViT(nn.Module):
         use_swiglu=False,
         multi_query=False,
         norm_layer=nn.LayerNorm,
-        rep_vgg=False,
         drop_uniform=False,
         yolo_arch=False,
         shuffle_down=False,
@@ -1010,6 +1046,7 @@ class FasterViT(nn.Module):
         full_features_head_dim=128,
         neck_start_stage=1,
         use_neck=False,
+        cpb_mlp_hidden=512,
         **kwargs,
     ):
         """
@@ -1074,48 +1111,32 @@ class FasterViT(nn.Module):
                 use_swiglu=use_swiglu,
                 multi_query=multi_query,
                 norm_layer=norm_layer,
-                rep_vgg=rep_vgg,
                 yolo_arch=yolo_arch,
                 downsample_shuffle=downsample_shuffle,
                 conv_base=conv_base,
+                cpb_mlp_hidden=cpb_mlp_hidden,
+
             )
 
             self.levels.append(level)
 
-        if self.return_full_features or self.use_neck:
-            # create feature projection layers for segmentation output
-            self.neck_features_proj = nn.ModuleList()
-            self.neck_start_stage = neck_start_stage
-            upsample_ratio = 1
-            for i in range(len(depths)):
-                level_n_features_output = int(dim * 2 ** i)
+        if not SIMPLER_UP_TOWER:
+            if self.return_full_features or self.use_neck:
+                # create feature projection layers for segmentation output
+                self.neck_features_proj = nn.ModuleList()
+                self.neck_start_stage = neck_start_stage
+                upsample_ratio = 1
+                for i in range(len(depths)):
+                    level_n_features_output = int(dim * 2 ** i)
 
-                if self.neck_start_stage > i:
-                    continue
+                    if self.neck_start_stage > i:
+                        continue
 
-                if (
-                    upsample_ratio > 1
-                ) or full_features_head_dim != level_n_features_output:
-                    feature_projection = nn.Sequential()
-                    # feature_projection.add_module("norm",LayerNorm2d(level_n_features_output)) #slow, but better
-
-                    if 0:
-                        # Train: 0 [1900/10009 ( 19%)]  Loss: 6.113 (6.57)  Time: 0.548s,  233.40/s  (0.549s,  233.04/s)  LR: 1.000e-05  Data: 0.015 (0.013)
-                        feature_projection.add_module(
-                            "norm", nn.BatchNorm2d(level_n_features_output)
-                        )  # fast, but worse
-                        feature_projection.add_module(
-                            "dconv",
-                            nn.ConvTranspose2d(
-                                level_n_features_output,
-                                full_features_head_dim,
-                                kernel_size=upsample_ratio,
-                                stride=upsample_ratio,
-                            ),
-                        )
-                    else:
+                    if (
+                        upsample_ratio > 1
+                    ) or full_features_head_dim != level_n_features_output:
+                        feature_projection = nn.Sequential()
                         # pixel shuffle based upsampling
-                        # Train: 0 [1950/10009 ( 19%)]  Loss: 6.190 (6.55)  Time: 0.540s,  236.85/s  (0.548s,  233.38/s)  LR: 1.000e-05  Data: 0.015 (0.013)
                         feature_projection.add_module(
                             "norm", nn.BatchNorm2d(level_n_features_output)
                         )  # fast, but worse
@@ -1133,17 +1154,19 @@ class FasterViT(nn.Module):
                         feature_projection.add_module(
                             "upsample_pixelshuffle", nn.PixelShuffle(upsample_ratio)
                         )
+                    else:
+                        feature_projection = nn.Sequential()
+                        feature_projection.add_module(
+                            "norm", nn.BatchNorm2d(level_n_features_output)
+                        )
 
-                else:
-                    feature_projection = nn.Sequential()
-                    feature_projection.add_module(
-                        "norm", nn.BatchNorm2d(level_n_features_output)
-                    )
+                    self.neck_features_proj.append(feature_projection)
 
-                self.neck_features_proj.append(feature_projection)
-
-                if i > 0 and self.levels[i - 1].downsample is not None:
-                    upsample_ratio *= 2
+                    if i > 0 and self.levels[i - 1].downsample is not None:
+                        upsample_ratio *= 2
+        else:
+            if self.return_full_features or self.use_neck:
+                self.high_res_neck = HiResNeck(dim, num_heads, depths, neck_start_stage, full_features_head_dim)
 
         num_features = (
             full_features_head_dim
@@ -1180,6 +1203,60 @@ class FasterViT(nn.Module):
             nn.init.ones_(m.weight)
             nn.init.zeros_(m.bias)
 
+    def change_window_size(self, new_window_size):
+        """
+        FasterViT uses windowed attention, it might be sensative to the choiuce of this parameter
+        especially in case of eneven partitioning of the feature maps.
+        FasterViT allows changing the window size post training.
+        Therefore it should be changed with different input image resolution.
+        Recommended values:
+            input res     |    window_size
+            224           |    7
+            256           |    8
+            386           |    12
+            512           |    16
+        Ideally, window_size should be a factor of the input resolution. In the third stage we divide the resolution by 16, so window_size should be img_res/16/2 for the third stage and img_res/32 for the last stage.
+        Applying in the brute force way, can be done smarter
+        """
+        window_size = new_window_size
+
+        for module in self.modules():
+            if hasattr(module, "window_size"):
+                # check if tuple or a number
+                if isinstance(module.window_size, tuple):
+                    if module.window_size[0] != window_size:
+                        module.window_size = (window_size, window_size)
+                elif isinstance(module.window_size, list):
+                    if module.window_size[0] != window_size:
+                        module.window_size = [window_size, window_size]
+                else:
+                    module.window_size = window_size
+
+    def set_optimal_window_size(self, image_dim):
+        """
+        Using hand picked window size for various resolutions.
+        """
+        if isinstance(image_dim, list) or isinstance(image_dim, tuple):
+            image_dim = min(image_dim)
+
+        if image_dim == 224:
+            new_window_size = 7
+        elif image_dim == 256:
+            new_window_size = 8
+        elif image_dim == 384:
+            new_window_size = 12
+        elif image_dim == 512:
+            new_window_size = 16
+        else:
+            if image_dim < 512:
+                new_window_size = np.ceil(image_dim / 32)
+            else:
+                new_window_size = 16
+
+        print(f"Changing window size to {new_window_size}")
+        self.change_window_size(new_window_size = new_window_size)
+
+
     @torch.jit.ignore
     def no_weight_decay_keywords(self):
         return {"rpb"}
@@ -1191,34 +1268,37 @@ class FasterViT(nn.Module):
             x, pre_downsample_x = level(x)
 
             if self.return_full_features or self.use_neck:
-                if self.neck_start_stage > il:
-                    continue
-                if full_features is None:
-                    full_features = self.neck_features_proj[il - self.neck_start_stage](
-                        pre_downsample_x
-                    )
-                else:
-                    # upsample torch tensor x to match full_features size, and add to full_features
-                    feature_projection = self.neck_features_proj[
-                        il - self.neck_start_stage
-                    ](pre_downsample_x)
-                    if (
-                        feature_projection.shape[2] != full_features.shape[2]
-                        or feature_projection.shape[3] != full_features.shape[3]
-                    ):
-                        feature_projection = torch.nn.functional.pad(
-                            feature_projection,
-                            (
-                                0,
-                                -feature_projection.shape[3] + full_features.shape[3],
-                                0,
-                                -feature_projection.shape[2] + full_features.shape[2],
-                            ),
+                if not SIMPLER_UP_TOWER:
+                    if self.neck_start_stage > il:
+                        continue
+                    if full_features is None:
+                        full_features = self.neck_features_proj[il - self.neck_start_stage](
+                            pre_downsample_x
                         )
-                    full_features += feature_projection
+                    else:
+                        # upsample torch tensor x to match full_features size, and add to full_features
+                        feature_projection = self.neck_features_proj[
+                            il - self.neck_start_stage
+                        ](pre_downsample_x)
+                        if (
+                            feature_projection.shape[2] != full_features.shape[2]
+                            or feature_projection.shape[3] != full_features.shape[3]
+                        ):
+                            feature_projection = torch.nn.functional.pad(
+                                feature_projection,
+                                (
+                                    0,
+                                    -feature_projection.shape[3] + full_features.shape[3],
+                                    0,
+                                    -feature_projection.shape[2] + full_features.shape[2],
+                                ),
+                            )
+                        full_features += feature_projection
+                else:
+                    full_features = self.high_res_neck(pre_downsample_x, il, full_features)
 
-        # x = self.norm(full_features if (self.return_full_features or self.use_neck) else x)
         x = self.norm(x)  # new version for
+
         x = self.avgpool(x)
         x = torch.flatten(x, 1)
 
@@ -1228,7 +1308,9 @@ class FasterViT(nn.Module):
         return x, full_features
 
     def forward(self, x):
+
         x, full_features = self.forward_features(x)
+
         x = self.head(x)
         if full_features is not None:
             return x, full_features
@@ -1244,245 +1326,6 @@ class FasterViT(nn.Module):
             for module in level.modules():
                 if hasattr(module, "switch_to_deploy"):
                     module.switch_to_deploy()
-
-
-@register_model
-def fastervit2_small(pretrained=False, **kwargs):  # ,
-    model = FasterViT(
-        depths=[3, 3, 5, 5],
-        num_heads=[2, 4, 8, 16],
-        window_size=[8, 8, [7, 7], 7],
-        dim=96,
-        in_dim=64,
-        mlp_ratio=4,
-        drop_path_rate=0.2,
-        sr_ratio=[1, 1, [1, 2], 1],
-        use_swiglu=False,
-        downsample_shuffle=False,
-        yolo_arch=True,
-        shuffle_down=False,
-        **kwargs,
-    )
-    if pretrained:
-        model.load_state_dict(torch.load(pretrained))
-    return model
-
-
-@register_model
-def fastervit2_tiny(pretrained=False, **kwargs):  # ,
-    model = FasterViT(
-        depths=[1, 3, 4, 5],
-        num_heads=[2, 4, 8, 16],
-        window_size=[8, 8, [7, 7], 7],
-        dim=80,
-        in_dim=64,
-        mlp_ratio=4,
-        drop_path_rate=0.2,
-        sr_ratio=[1, 1, [2, 1], 1],
-        use_swiglu=False,
-        downsample_shuffle=False,
-        yolo_arch=True,
-        shuffle_down=False,
-        **kwargs,
-    )
-    if pretrained:
-        model.load_state_dict(torch.load(pretrained))
-    return model
-
-
-@register_model
-def fastervit2_base(pretrained=False, **kwargs):
-    model = FasterViT(
-        depths=[3, 3, 5, 5],
-        num_heads=[2, 4, 8, 16],
-        window_size=[8, 8, [7, 7], 7],
-        dim=128,
-        in_dim=64,
-        mlp_ratio=4,
-        drop_path_rate=0.2,
-        sr_ratio=[1, 1, [2, 1], 1],
-        use_swiglu=False,
-        yolo_arch=True,
-        shuffle_down=False,
-        conv_base=True,
-        **kwargs,
-    )
-    if pretrained:
-        model.load_state_dict(torch.load(pretrained))
-    return model
-
-
-@register_model
-def fastervit2_base_fullres1(pretrained=False, **kwargs):
-    model = FasterViT(
-        depths=[3, 3, 5, 5],
-        num_heads=[2, 4, 8, 16],
-        window_size=[8, 8, [7, 7], 7],
-        dim=128,
-        in_dim=64,
-        mlp_ratio=4,
-        drop_path_rate=0.2,
-        sr_ratio=[1, 1, [2, 1], 1],
-        use_swiglu=False,
-        yolo_arch=True,
-        shuffle_down=False,
-        conv_base=True,
-        use_neck=True,
-        full_features_head_dim=1024,
-        neck_start_stage=2,
-        **kwargs,
-    )
-    if pretrained:
-        model.load_state_dict(torch.load(pretrained))
-    return model
-
-
-@register_model
-def fastervit2_base_fullres2(pretrained=False, **kwargs):
-    model = FasterViT(
-        depths=[3, 3, 5, 5],
-        num_heads=[2, 4, 8, 16],
-        window_size=[8, 8, [7, 7], 7],
-        dim=128,
-        in_dim=64,
-        mlp_ratio=4,
-        drop_path_rate=0.2,
-        sr_ratio=[1, 1, [2, 1], 1],
-        use_swiglu=False,
-        yolo_arch=True,
-        shuffle_down=False,
-        conv_base=True,
-        use_neck=True,
-        full_features_head_dim=512,
-        neck_start_stage=1,
-        **kwargs,
-    )
-    if pretrained:
-        model.load_state_dict(torch.load(pretrained))
-    return model
-
-
-@register_model
-def fastervit2_base_fullres3(pretrained=False, **kwargs):
-    model = FasterViT(
-        depths=[3, 3, 5, 5],
-        num_heads=[2, 4, 8, 16],
-        window_size=[8, 8, [7, 7], 7],
-        dim=128,
-        in_dim=64,
-        mlp_ratio=4,
-        drop_path_rate=0.2,
-        sr_ratio=[1, 1, [2, 1], 1],
-        use_swiglu=False,
-        yolo_arch=True,
-        shuffle_down=False,
-        conv_base=True,
-        use_neck=True,
-        full_features_head_dim=256,
-        neck_start_stage=1,
-        **kwargs,
-    )
-    if pretrained:
-        model.load_state_dict(torch.load(pretrained))
-    return model
-
-
-@register_model
-def fastervit2_base_fullres4(pretrained=False, **kwargs):
-    model = FasterViT(
-        depths=[3, 3, 5, 5],
-        num_heads=[2, 4, 8, 16],
-        window_size=[8, 8, [7, 7], 7],
-        dim=128,
-        in_dim=64,
-        mlp_ratio=4,
-        drop_path_rate=0.2,
-        sr_ratio=[1, 1, [2, 1], 1],
-        use_swiglu=False,
-        yolo_arch=True,
-        shuffle_down=False,
-        conv_base=True,
-        use_neck=True,
-        full_features_head_dim=256,
-        neck_start_stage=2,
-        **kwargs,
-    )
-    if pretrained:
-        model.load_state_dict(torch.load(pretrained))
-    return model
-
-
-@register_model
-def fastervit2_base_fullres5(pretrained=False, **kwargs):
-    model = FasterViT(
-        depths=[3, 3, 5, 5],
-        num_heads=[2, 4, 8, 16],
-        window_size=[8, 8, [7, 7], 7],
-        dim=128,
-        in_dim=64,
-        mlp_ratio=4,
-        drop_path_rate=0.2,
-        sr_ratio=[1, 1, [2, 1], 1],
-        use_swiglu=False,
-        yolo_arch=True,
-        shuffle_down=False,
-        conv_base=True,
-        use_neck=True,
-        full_features_head_dim=512,
-        neck_start_stage=2,
-        **kwargs,
-    )
-    if pretrained:
-        model.load_state_dict(torch.load(pretrained))
-    return model
-
-
-# pyt: 1934, 4202 TRT
-@register_model
-def fastervit2_large(pretrained=False, **kwargs):
-    model = FasterViT(
-        depths=[3, 3, 5, 5],
-        num_heads=[2, 4, 8, 16],
-        window_size=[8, 8, [7, 7], 7],
-        dim=128 + 64,
-        in_dim=64,
-        mlp_ratio=4,
-        drop_path_rate=0.2,
-        sr_ratio=[1, 1, [2, 1], 1],
-        use_swiglu=False,
-        yolo_arch=True,
-        shuffle_down=False,
-        **kwargs,
-    )
-    if pretrained:
-        model.load_state_dict(torch.load(pretrained))
-    return model
-
-
-@register_model
-def fastervit2_large_fullres(pretrained=False, **kwargs):
-    model = FasterViT(
-        depths=[3, 3, 5, 5],
-        num_heads=[2, 4, 8, 16],
-        window_size=[None, None, [7, 7], 7],
-        dim=192,
-        in_dim=64,
-        mlp_ratio=4,
-        drop_path_rate=0.0,
-        sr_ratio=[1, 1, [2, 1], 1],
-        use_swiglu=False,
-        yolo_arch=True,
-        shuffle_down=False,
-        conv_base=True,
-        use_neck=True,
-        full_features_head_dim=1536,
-        neck_start_stage=2,
-        **kwargs,
-    )
-    if pretrained:
-        model.load_state_dict(torch.load(pretrained))
-    return model
-
 
 @register_model
 def fastervit2_large_fullres_ws8(pretrained=False, **kwargs):
@@ -1559,116 +1402,24 @@ def fastervit2_large_fullres_ws32(pretrained=False, **kwargs):
     return model
 
 
-# pyt: 897
-@register_model
-def fastervit2_xlarge(pretrained=False, **kwargs):
-    model = FasterViT(
-        depths=[3, 3, 5, 5],
-        num_heads=[2, 4, 8, 16],
-        window_size=[8, 8, [7, 7], 7],
-        dim=128 + 128 + 64,
-        in_dim=64,
-        mlp_ratio=4,
-        drop_path_rate=0.2,
-        sr_ratio=[1, 1, [2, 1], 1],
-        use_swiglu=False,
-        yolo_arch=True,
-        shuffle_down=False,
-        **kwargs,
-    )
-    if pretrained:
-        model.load_state_dict(torch.load(pretrained))
-    return model
-
-
-# pyt:
-@register_model
-def fastervit2_huge(pretrained=False, **kwargs):
-    model = FasterViT(
-        depths=[3, 3, 5, 5],
-        num_heads=[2, 4, 8, 16],
-        window_size=[8, 8, [7, 7], 7],
-        dim=128 + 128 + 128 + 64,
-        in_dim=64,
-        mlp_ratio=4,
-        drop_path_rate=0.2,
-        sr_ratio=[1, 1, [2, 1], 1],
-        use_swiglu=False,
-        yolo_arch=True,
-        shuffle_down=False,
-        **kwargs,
-    )
-    if pretrained:
-        model.load_state_dict(torch.load(pretrained))
-    return model
-
-
-@register_model
-def fastervit2_xtiny(pretrained=False, **kwargs):  # ,
-    model = FasterViT(
-        depths=[1, 3, 4, 5],
-        num_heads=[2, 4, 8, 16],
-        window_size=[8, 8, [7, 7], 7],
-        dim=64,
-        in_dim=64,
-        mlp_ratio=4,
-        drop_path_rate=0.1,
-        sr_ratio=[1, 1, [2, 1], 1],
-        use_swiglu=False,
-        downsample_shuffle=False,
-        yolo_arch=True,
-        shuffle_down=False,
-        **kwargs,
-    )
-    if pretrained:
-        model.load_state_dict(torch.load(pretrained))
-    return model
-
-
-@register_model
-def fastervit2_xxtiny_5(pretrained=False, **kwargs):  # ,
-    model = FasterViT(
-        depths=[1, 3, 4, 5],
-        num_heads=[2, 4, 8, 16],
-        window_size=[8, 8, [7, 7], 7],
-        dim=48,
-        in_dim=64,
-        mlp_ratio=4,
-        drop_path_rate=0.05,
-        sr_ratio=[1, 1, [2, 1], 1],
-        use_swiglu=False,
-        downsample_shuffle=False,
-        yolo_arch=True,
-        shuffle_down=False,
-        **kwargs,
-    )
-    if pretrained:
-        model.load_state_dict(torch.load(pretrained))
-    return model
-
-
-@register_model
-def fastervit2_xxxtiny(pretrained=False, **kwargs):  # ,
-    model = FasterViT(
-        depths=[1, 3, 4, 5],
-        num_heads=[2, 4, 8, 16],
-        window_size=[8, 8, [7, 7], 7],
-        dim=32,
-        in_dim=32,
-        mlp_ratio=4,
-        drop_path_rate=0.0,
-        sr_ratio=[1, 1, [2, 1], 1],
-        use_swiglu=False,
-        downsample_shuffle=False,
-        yolo_arch=True,
-        shuffle_down=False,
-        **kwargs,
-    )
-    if pretrained:
-        model.load_state_dict(torch.load(pretrained))
-    return model
-
-
 @register_model
 def eradio(pretrained=False, **kwargs):
     return fastervit2_large_fullres_ws16(pretrained=pretrained, **kwargs)
+
+'''
+Suggested way to use:
+from transformers import AutoModel
+model = AutoModel.from_pretrained("nvidia/E-RADIO", trust_remote_code=True)
+
+model.model.set_optimal_window_size(image_dim = data["image"][0].shape[:2])
+imgs = [torch.tensor(img).permute(2,0,1)/255.0 for img in data["image"]] #res is 224
+input_images = torch.stack(imgs).cuda()
+
+model.eval()
+model.cuda()
+
+cls_token, features = model(input_images)
+cls_token = features.mean([2, 3])
+
+
+'''
