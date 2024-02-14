@@ -36,11 +36,11 @@ def main(rank: int = 0, world_size: int = 1):
     parser.add_argument('--use-hf', default=False, action='store_true',
                         help='Use RADIO from HuggingFace Hub'
     )
-    parser.add_argument('-v', '--model-version', default='radio_v1',
+    parser.add_argument('-v', '--model-version', default='radio_v2',
                         help='Which radio model to load.'
     )
 
-    parser.add_argument('-r', '--resolution', nargs='+', type=int, default=(378, 378),
+    parser.add_argument('-r', '--resolution', nargs='+', type=int, default=None,
                         help='The input image resolution.'
                         ' If one value is specified, the shortest dimension is resized to this.'
                         ' If two, the image is center cropped.'
@@ -52,7 +52,7 @@ def main(rank: int = 0, world_size: int = 1):
     parser.add_argument('--eval-dataset', default=None, type=str,
                         help='The name of the evaluation dataset, if different than the training one.'
     )
-    parser.add_argument('--resize-multiple', type=int, default=14,
+    parser.add_argument('--resize-multiple', type=int, default=None,
                         help='Resize images with dimensions a multiple of this value.'
                         ' This should be equal to the patch size of a ViT (e.g. RADIOv1)'
     )
@@ -99,11 +99,13 @@ def main(rank: int = 0, world_size: int = 1):
     model.to(device=device).eval()
     rank_print('Done')
 
-    resize_multiple = args.resize_multiple
-    if args.vitdet_window_size is not None:
-        resize_multiple *= args.vitdet_window_size
+    if args.resolution is None:
+        args.resolution = (model.preferred_resolution.height, model.preferred_resolution.width)
 
-    transform = get_standard_transform(args.resolution, resize_multiple)
+    if args.resize_multiple is None:
+        args.resize_multiple = model.min_resolution_step
+
+    transform = get_standard_transform(args.resolution, args.resize_multiple)
 
     rank_print('Loading dataset...')
     ds_train_builder = load_dataset_builder(args.dataset, trust_remote_code=True)

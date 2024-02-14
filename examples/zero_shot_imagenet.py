@@ -39,15 +39,16 @@ def main(rank: int = 0, world_size: int = 1):
     device = torch.device('cuda', local_rank)
     parser = argparse.ArgumentParser(description='ZeroShot Classification Demo')
 
-    parser.add_argument('-v', '--model-version', default='radio_v1',
+    parser.add_argument('-v', '--model-version', default='radio_v2',
                         help='Which radio model to load.'
     )
     parser.add_argument('-a', '--adaptor-name', default='clip', help='Which head to use')
-    parser.add_argument('-r', '--resolution', nargs='+', type=int, default=(378,),
+    parser.add_argument('-r', '--resolution', nargs='+', type=int, default=None,
                         help='The input image resolution.'
-                        ' If one value is specified, the shortest dimension is resized to this.'
-                        ' If two, the image is center cropped.'
-                        ' If not specified, center cropped 378px is used.'
+                             ' If one value is specified, the shortest dimension is resized to this.'
+                             ' If two, the image is center cropped.'
+                             ' If not specified, center cropped 378px is used.'
+                             ' Default: The RADIO model\'s preferred resolution.'
     )
     parser.add_argument('-d', '--dataset', default='imagenet-1k',
                         help='The name of the dataset to classify'
@@ -55,9 +56,9 @@ def main(rank: int = 0, world_size: int = 1):
     parser.add_argument('--split', default='validation',
                         help='The dataset split to use.'
     )
-    parser.add_argument('--resize-multiple', type=int, default=14,
+    parser.add_argument('--resize-multiple', type=int, default=None,
                         help='Resize images with dimensions a multiple of this value.'
-                        ' This should be equal to the patch size of a ViT (e.g. RADIOv1)'
+                             ' This should be equal to the patch size of a ViT (e.g. RADIOv1)'
     )
     parser.add_argument('--batch-size', type=int, default=128,
                         help='The batch size. If the input is variable sized, then this argument becomes a maximum.'
@@ -79,7 +80,7 @@ def main(rank: int = 0, world_size: int = 1):
 
     rank_print('Loading model...')
 
-    ctor_args = dict(version=args.model_version, progress=True, adaptor_name=args.adaptor_name, return_spatial_features=False,
+    ctor_args = dict(version=args.model_version, progress=True, adaptor_names=args.adaptor_name, return_spatial_features=False,
                      vitdet_window_size=args.vitdet_window_size,
     )
     if not args.use_local_lib:
@@ -95,11 +96,13 @@ def main(rank: int = 0, world_size: int = 1):
     ds_builder = load_dataset_builder(args.dataset, trust_remote_code=True)
     num_examples = ds_builder.info.splits[args.split].num_examples
 
-    resize_multiple = args.resize_multiple
-    if args.vitdet_window_size is not None:
-        resize_multiple *= args.vitdet_window_size
+    if args.resolution is None:
+        args.resolution = (model.preferred_resolution.height, model.preferred_resolution.width)
 
-    transform = get_standard_transform(args.resolution, resize_multiple)
+    if args.resize_multiple is None:
+        args.resize_multiple = model.min_resolution_step
+
+    transform = get_standard_transform(args.resolution, args.resize_multiple)
     dataset = ds_builder.as_dataset(split=args.split)
     dataset = dataset.to_iterable_dataset(num_shards=world_size * max(1, args.workers))
     dataset = split_dataset_by_node(dataset, rank=rank, world_size=world_size)
@@ -115,8 +118,9 @@ def main(rank: int = 0, world_size: int = 1):
     rank_print(f'Description: {ds_builder.info.description}')
 
     rank_print('Building Zero Shot Classifier...')
+    adaptor = model.adaptors[args.adaptor_name]
     classifier = get_clip_classifier(
-        model=model, tokenizer=model.tokenizer, model_key=args.model_version, device=device,
+        model=adaptor, tokenizer=adaptor.tokenizer, model_key=args.model_version, device=device,
     )
     rank_print('Done')
 
@@ -133,7 +137,9 @@ def main(rank: int = 0, world_size: int = 1):
                 targets = targets.to(device=device, non_blocking=True)
 
                 with torch.autocast(device.type, dtype=torch.bfloat16):
-                    summary = model.encode_image(images)
+                    output = model(images)
+                    summary = output[args.adaptor_name].summary
+                    summary = F.normalize(summary, dim=-1)
 
                     logits = summary @ classifier
 
@@ -236,9 +242,7 @@ def get_clip_classifier(model, tokenizer,
     for i in tqdm(range(0, len(texts), batch_size), desc="batch", disable=rank > 0):
         curr_texts = texts[i : i + batch_size]
         tokens = tokenizer(curr_texts).to(device)
-        embeddings = model.encode_text(tokens)
-        if normalize_intermediate:
-            embeddings = F.normalize(embeddings, dim=-1)
+        embeddings = model.encode_text(tokens, normalize=normalize_intermediate)
         all_embeddings.append(embeddings)
 
     all_embeddings = torch.cat(all_embeddings, dim=0)
