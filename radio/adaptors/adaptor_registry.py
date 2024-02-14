@@ -28,10 +28,10 @@ class AdaptorRegistry:
             return factory_function
         return decorator
 
-    def create_adaptor(self, name, base_model: RADIOModel, main_config: Namespace, adaptor_config: dict_t, state: state_t):
+    def create_adaptor(self, name, main_config: Namespace, adaptor_config: dict_t, state: state_t):
         if name not in self._registry:
             raise ValueError(f"Adaptor '{name}' not found in registry")
-        return self._registry[name](base_model, main_config, adaptor_config, state)
+        return self._registry[name](main_config, adaptor_config, state)
 
 # Creating an instance of the registry
 adaptor_registry = AdaptorRegistry()

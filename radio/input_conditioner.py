@@ -19,20 +19,20 @@ class InputConditioner(nn.Module):
                  input_scale: float,
                  norm_mean: norm_t,
                  norm_std: norm_t,
-                 dtype: torch.dtype = torch.float32,
+                 dtype: torch.dtype = None,
     ):
         super().__init__()
 
         self.dtype = dtype
 
-        # self.input_scale = input_scale
         self.register_buffer("norm_mean", _to_tensor(norm_mean) / input_scale)
         self.register_buffer("norm_std", _to_tensor(norm_std) / input_scale)
 
     def forward(self, x: torch.Tensor):
-        # x = x * self.input_scale
         y = (x - self.norm_mean) / self.norm_std
-        return y.to(self.dtype)
+        if self.dtype is not None:
+            y = y.to(self.dtype)
+        return y
 
 
 def get_default_conditioner():

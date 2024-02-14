@@ -8,8 +8,9 @@
 
 dependencies = ["torch", "timm", "einops"]
 
+from dataclasses import dataclass
 import os
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Union, List
 import warnings
 
 import torch
@@ -18,15 +19,31 @@ from torch.hub import load_state_dict_from_url
 from timm.models import clean_state_dict
 
 from radio.adaptors import adaptor_registry
-from radio.radio_model import RADIOModel, create_model_from_args
+from radio.radio_model import RADIOModel, create_model_from_args, Resolution
 from radio.input_conditioner import get_default_conditioner
 from radio.vitdet import apply_vitdet_arch, VitDetArgs
 
+
+@dataclass
+class RadioResource:
+    url: str
+    patch_size: int
+    max_resolution: int
+    preferred_resolution: Resolution
+
+
 resource_map = {
-    "radio_v1": "https://huggingface.co/nvidia/RADIO/resolve/main/radio_v1.pth.tar?download=true"
+    "radio_v1": RadioResource("https://huggingface.co/nvidia/RADIO/resolve/main/radio_v1.pth.tar?download=true",
+                              patch_size=14, max_resolution=1050,
+                              preferred_resolution=Resolution(378, 378),
+    ),
+    "radio_v2": RadioResource("https://huggingface.co/nvidia/RADIO/resolve/main/radio_v2.pth.tar?download=true",
+                              patch_size=16, max_resolution=2048,
+                              preferred_resolution=Resolution(432, 432),
+    ),
 }
 
-_DEFAULT_VERSION = "radio_v1"
+_DEFAULT_VERSION = "radio_v2"
 
 
 def radio_model(
@@ -34,7 +51,7 @@ def radio_model(
     progress: bool = True,
     return_summary: bool = True,
     return_spatial_features: bool = True,
-    adaptor_name: str = None,
+    adaptor_names: Union[str, List[str]] = None,
     vitdet_window_size: Optional[int] = None,
     **kwargs,
 ) -> RADIOModel:
@@ -43,9 +60,11 @@ def radio_model(
 
     if os.path.isfile(version):
         chk = torch.load(version, map_location="cpu")
+        resource = RadioResource(version, patch_size=None, max_resolution=None)
     else:
+        resource = resource_map[version]
         chk = load_state_dict_from_url(
-            resource_map[version], progress=progress, map_location="cpu"
+            resource.url, progress=progress, map_location="cpu"
         )
 
     mod = create_model_from_args(chk["args"])
@@ -71,19 +90,17 @@ def radio_model(
         if t.get("use_summary", True)
     ], dtype=torch.int64)
 
-    radio = RADIOModel(
-        mod,
-        conditioner,
-        return_summary=return_summary,
-        return_spatial_features=return_spatial_features,
-        summary_idxs=summary_idxs,
-    )
-
     if vitdet_window_size is not None:
         apply_vitdet_arch(mod, VitDetArgs(vitdet_window_size, radio.num_summary_tokens))
 
-    if adaptor_name:
-        teachers = chk["args"].teachers
+    if adaptor_names is None:
+        adaptor_names = []
+    elif isinstance(adaptor_names, str):
+        adaptor_names = [adaptor_names]
+
+    teachers = chk["args"].teachers
+    adaptors = dict()
+    for adaptor_name in adaptor_names:
         for tidx, tconf in enumerate(teachers):
             if tconf["name"] == adaptor_name:
                 break
@@ -102,8 +119,20 @@ def radio_model(
             elif k.startswith(pf_feat):
                 adaptor_state['feature' + k[len(pf_feat):]] = v
 
-        radio.summary_select_idx = tidx
-        radio = adaptor_registry.create_adaptor(ttype, radio, chk["args"], tconf, adaptor_state)
+        adaptor = adaptor_registry.create_adaptor(ttype, chk["args"], tconf, adaptor_state)
+        adaptor.head_idx = tidx
+        adaptors[adaptor_name] = adaptor
+
+    radio = RADIOModel(
+        mod,
+        conditioner,
+        summary_idxs=summary_idxs,
+        patch_size=resource.patch_size,
+        max_resolution=resource.max_resolution,
+        window_size=vitdet_window_size,
+        preferred_resolution=resource.preferred_resolution,
+        adaptors=adaptors,
+    )
 
     return radio
 

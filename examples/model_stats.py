@@ -33,7 +33,7 @@ def main():
     parser.add_argument('--use-hf', default=False, action='store_true',
                         help='Use RADIO from HuggingFace Hub'
     )
-    parser.add_argument('-v', '--model-version', default='radio_v1',
+    parser.add_argument('-v', '--model-version', default='radio_v2',
                         help='Which radio model to load.'
     )
     parser.add_argument('-d', '--dataset', default='food101',

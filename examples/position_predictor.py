@@ -51,7 +51,7 @@ def main(rank: int = 0, world_size: int = 1):
         help="Use RADIO from HuggingFace Hub",
     )
     parser.add_argument(
-        "-v", "--model-version", default="radio_v1", help="Which radio model to load."
+        "-v", "--model-version", default="radio_v2", help="Which radio model to load."
     )
 
     parser.add_argument(
@@ -59,7 +59,7 @@ def main(rank: int = 0, world_size: int = 1):
         "--resolution",
         nargs="+",
         type=int,
-        default=(378, 378),
+        default=None,
         help="The input image resolution."
         " If one value is specified, the shortest dimension is resized to this."
         " If two, the image is center cropped."
@@ -77,7 +77,7 @@ def main(rank: int = 0, world_size: int = 1):
     parser.add_argument(
         "--resize-multiple",
         type=int,
-        default=14,
+        default=None,
         help="Resize images with dimensions a multiple of this value."
         " This should be equal to the patch size of a ViT (e.g. RADIOv1)",
     )
@@ -136,6 +136,12 @@ def main(rank: int = 0, world_size: int = 1):
 
     if distributed:
         position_predictor = DDP(position_predictor, device_ids=[local_rank], find_unused_parameters=True)
+
+    if args.resolution is None:
+        args.resolution = (radio_model.preferred_resolution.height, radio_model.preferred_resolution.width)
+
+    if args.resize_multiple is None:
+        args.resize_multiple = radio_model.min_resolution_step
 
     transform = [
         ResizeTransform(args.resolution, args.resize_multiple),

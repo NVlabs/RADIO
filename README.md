@@ -10,37 +10,23 @@ Mike Ranzinger, Greg Heinrich, Jan Kautz, Pavlo Molchanov
 
 Refer to `model_results.csv` for model versions and their metrics.
 
-### HuggingFace Hub
-
-Pull the RADIO model from a Python script:
-
-```Python
-from transformers import AutoModel
-model = AutoModel.from_pretrained("nvidia/RADIO", trust_remote_code=True)
-```
-
-Pull the E-RADIO model from a Python script:
-
-```Python
-from transformers import AutoModel
-model = AutoModel.from_pretrained("nvidia/E-RADIO", trust_remote_code=True)
-```
-
 ### TorchHub
 
 ```Python
 import torch
 
 # If you don't supply the `version` parameter, the latest ViT version will be returned.
-model = torch.hub.load('NVlabs/RADIO', 'radio_model', version='radio_v1', progress=True)
+model = torch.hub.load('NVlabs/RADIO', 'radio_model', version='radio_v2', progress=True)
 model.cuda().eval()
 
 x = torch.rand(1, 3, 224, 224, device='cuda')
 
 # NOTE: RADIO models expect the input to have values in the range [0, 1]
-# NOTE 2: `radio_v1` is a ViT-H/14 model, and supports inputs in the size range `224 < Height < 1008`
-#         and `224 < Width < 1008` where each dimension must be divisible by 14.
-#         Non-square inputs are supported.
+# NOTE 2: `radio_v1` is a ViT-H/14 model, and supports inputs in the size range `224 < dim < 1008`
+#           where each dimension must be divisible by 14.
+#           Non-square inputs are supported.
+# NOTE 3: `radio_v2` is a ViT-H/16 model, and supports inputs in the size range `224 < dim < 2048`
+#           where each dimension must be divisible by 16.
 summary, spatial_features = model(x)
 
 # RADIO also supports running in mixed precision, like so:
@@ -67,12 +53,53 @@ spatial_features = rearrange(spatial_features, 'b (h w) d -> b d h w', h=x.shape
 
 The resulting tensor will have shape $(B,D,H,W)$, as is typically seen with computer vision models.
 
-### RADIOv1 Notes
+### RADIOv1/v2 Notes
 
-We have trained this model to be flexible in input dimension. It supports inputs with both width and height in the range $[14, 1008]$ as long as both axes are divisible by 14. We have found that summarization tokens work best at $H=W=378$ (although the range $[192, 448]$ works well). For spatial tasks, we used $H=W=518$ to perform linear probing for semantic segmentation, and may perform better for more high-resolution tasks. Going up to $1008$, the model may need additional fine tuning at that resolution for best results.
+We have trained this model to be flexible in input dimension. It supports arbitrary input sizes. There are useful properties set for the returned model that you may query:
+```Python
+model.patch_size: int
+model.max_resolution: int # (Images can be no larger than this value on either dimension)
+model.preferred_resolution: Tuple[height, width] # This is the primary resolution that RADIO was trained at, and will likely
+                                                 # produce best results for summary tasks. Dense tasks require experimentation
+                                                 # to find the best resolution.
+model.window_size: Optional[int] # If `vitdet_window_size` was specified, this is that value
+model.min_resolution_step: int # Combines `patch_size` and `window_size` to define what each image dimension must be a multiple of.
+                               # e.g. If `patch_size == 16`, then both width and height must be x*16
+                               # If `patch_size == 14` and `window_size == 8` then width and height must be x*14*8
 
-It is not required that $H=W$ although we have not specifically trained or testing the model in this setting.
+# For convenience, you can also call this function to get the nearest valid input size for a given image
+nearest_height, nearest_width = model.get_nearest_supported_resolution(height=1024, width=1024)
+```
 
+RADIO allows non-square inputs. In fact, both RADIOv1 and RADIOv2 achieve higher zero-shot classification scores when allowing the larger image dimension to vary, and only fixing the smaller dimension.
+
+### Adaptors
+_(Currently only supported with TorchHub)_
+
+You may additionally specify model adaptors to achieve extra behaviors. Currently, 'clip' is the only supported adaptor. In this mode, radio will return a dict of tuples:
+
+```Python
+model = torch.hub.load(..., adaptor_names='clip', ...)
+
+output = model(x)
+
+bb_summary, bb_features = output['backbone']
+clip_summary, clip_features = output['clip']
+```
+
+Refer to `examples/zero_shot_imagenet.py` for example usage.
+
+### Preprocessing
+
+By default, RADIO expects the input images to have normalized values in the `[0, 1]` range. If you already have an existing data pipeline, and you'd like conditioning to occur there instead of within the RADIO model, you can call this function:
+
+```Python
+preprocessor = model.make_preprocessor_external()
+
+images = preprocessor(images)
+...
+output = model(images)
+```
 
 ## Training
 
@@ -81,6 +108,22 @@ _Coming Soon_
 ## License
 
 RADIO code and weights are released under the [NSCLv1 License](LICENSE).
+
+## ~Deprecated: HuggingFace Hub~
+
+Pull the RADIO model from a Python script:
+
+```Python
+from transformers import AutoModel
+model = AutoModel.from_pretrained("nvidia/RADIO", trust_remote_code=True)
+```
+
+Pull the E-RADIO model from a Python script:
+
+```Python
+from transformers import AutoModel
+model = AutoModel.from_pretrained("nvidia/E-RADIO", trust_remote_code=True)
+```
 
 ## Citing RADIO
 
