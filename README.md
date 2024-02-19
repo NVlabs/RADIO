@@ -8,7 +8,11 @@ Mike Ranzinger, Greg Heinrich, Jan Kautz, Pavlo Molchanov
 
 ## Pretrained Models
 
-Refer to `model_results.csv` for model versions and their metrics.
+| Name     | Architecture | Teachers                                 | Throughput | Zero Shot Top-1 | kNN Top-1 | ADE20k | VOC   | GQA   | SQA   | TextVQA | VQAv2 |
+|----------|--------------|------------------------------------------|------------|-----------------|-----------|--------|-------|-------|-------|---------|-------|
+| radio_v2 | ViT-H/16-CPE | DFN CLIP; OpenAI CLIP; DINOv2; SAM | 556        | 82.71           | **85.92**     | **51.33**  |       | 61.50 | 66.48  | **55.16**   | **78.09** |
+| radio_v1 | ViT-H/14-CPE | DFN CLIP; OpenAI CLIP; DINOv2            | 556        | **82.73**           | 85.29     | 50.32  | 85.17 | 61.43 | 67.08  | 54.92   | 77.88 |
+| eradio_v1 | E-RADIO     | Meta CLIP; DINOv2                        | 3697       | 77.87           | 83.73     | 45.50  | 79.95 | 66.22 | 65.54  | 43.51   | 70.74 |
 
 ### TorchHub
 
