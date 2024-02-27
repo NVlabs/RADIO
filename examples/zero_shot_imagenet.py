@@ -92,7 +92,7 @@ def main(rank: int = 0, world_size: int = 1):
         args.resolution = (model.preferred_resolution.height, model.preferred_resolution.width)
 
     if args.resize_multiple is None:
-        args.resize_multiple = model.min_resolution_step
+        args.resize_multiple = getattr(model, 'min_resolution_step', model.patch_size)
 
     transform = get_standard_transform(args.resolution, args.resize_multiple, preprocessor=preprocessor)
     dataset = ds_builder.as_dataset(split=args.split)
@@ -110,7 +110,7 @@ def main(rank: int = 0, world_size: int = 1):
     rank_print(f'Description: {ds_builder.info.description}')
 
     rank_print('Building Zero Shot Classifier...')
-    adaptor = model.adaptors[args.adaptor_name]
+    adaptor = model.adaptors[args.adaptor_name] if hasattr(model, 'adaptors') else model
     classifier = get_clip_classifier(
         model=adaptor, tokenizer=adaptor.tokenizer, model_key=args.model_version, device=device,
     )

@@ -7,6 +7,8 @@ from torch.nn import functional as F
 
 from timm.data import IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD, OPENAI_CLIP_MEAN, OPENAI_CLIP_STD
 
+from radio.radio_model import RadioOutput
+
 class DinoWrapper(nn.Module):
     def __init__(self, dino_model: nn.Module):
         super().__init__()
@@ -26,11 +28,12 @@ class DinoWrapper(nn.Module):
 
 
 class CLIPWrapper(nn.Module):
-    def __init__(self, clip_model: nn.Module, tokenizer: None, clip_mode: bool = False):
+    def __init__(self, clip_model: nn.Module, tokenizer, adaptor_name: str, clip_mode: bool = False):
         super().__init__()
         self.inner = clip_model
         clip_model.visual.output_tokens = True
         self.tokenizer = tokenizer
+        self.adaptor_name = adaptor_name
 
         if not clip_mode:
             visual = clip_model.visual
@@ -38,10 +41,18 @@ class CLIPWrapper(nn.Module):
             I = torch.eye(proj.shape[0], dtype=proj.dtype, device=proj.device)
             visual.proj = nn.Parameter(I)
 
+    @property
+    def patch_size(self):
+        return self.inner.visual.patch_size[0]
+
     def forward(self, *args, **kwargs):
         token, features = self.inner.visual(*args, **kwargs)
 
-        return token, features
+        op = RadioOutput(token, features)
+        return {
+            'backbone': op,
+            self.adaptor_name: op,
+        }
 
     def encode_image(self, image, normalize: bool = False):
         token, _ = self(image)
@@ -101,7 +112,7 @@ def load_model(version: str, adaptor_name: str = None, use_huggingface: bool = F
 
         tokenizer = open_clip.get_tokenizer(model_arch)
 
-        model = CLIPWrapper(model, tokenizer, clip_mode='clip' in adaptor_name if adaptor_name else False)
+        model = CLIPWrapper(model, tokenizer, adaptor_name, clip_mode='clip' in adaptor_name if adaptor_name else False)
         info = ModelInfo(model_class='open_clip', model_subtype=pretrained)
     else:
         raise ValueError(f'Unsupported model version: {version}')
