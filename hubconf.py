@@ -90,9 +90,6 @@ def radio_model(
         if t.get("use_summary", True)
     ], dtype=torch.int64)
 
-    if vitdet_window_size is not None:
-        apply_vitdet_arch(mod, VitDetArgs(vitdet_window_size, radio.num_summary_tokens))
-
     if adaptor_names is None:
         adaptor_names = []
     elif isinstance(adaptor_names, str):
@@ -133,6 +130,9 @@ def radio_model(
         preferred_resolution=resource.preferred_resolution,
         adaptors=adaptors,
     )
+
+    if vitdet_window_size is not None:
+        apply_vitdet_arch(mod, VitDetArgs(vitdet_window_size, radio.num_summary_tokens))
 
     return radio
 
