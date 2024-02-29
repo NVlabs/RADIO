@@ -35,7 +35,7 @@ class CLIPWrapper(nn.Module):
         self.tokenizer = tokenizer
         self.adaptor_name = adaptor_name
 
-        if not clip_mode:
+        if not clip_mode and hasattr(clip_model.visual, 'proj'):
             visual = clip_model.visual
             proj = visual.proj
             I = torch.eye(proj.shape[0], dtype=proj.dtype, device=proj.device)
@@ -46,13 +46,21 @@ class CLIPWrapper(nn.Module):
         return self.inner.visual.patch_size[0]
 
     def forward(self, *args, **kwargs):
-        token, features = self.inner.visual(*args, **kwargs)
+        enc = self.inner.visual(*args, **kwargs)
+
+        if isinstance(enc, (tuple, list)):
+            token, features = enc
+        else:
+            token, features = enc, None
 
         op = RadioOutput(token, features)
-        return {
-            'backbone': op,
-            self.adaptor_name: op,
-        }
+
+        if self.adaptor_name:
+            return {
+                'backbone': op,
+                self.adaptor_name: op,
+            }
+        return op
 
     def encode_image(self, image, normalize: bool = False):
         token, _ = self(image)
