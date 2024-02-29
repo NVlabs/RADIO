@@ -59,7 +59,7 @@ class ResizeTransform(transforms.Transform):
         return transforms.functional.resize(inpt, size=size, interpolation=transforms.InterpolationMode.BICUBIC)
 
 
-def get_standard_transform(resolution: List[int], resize_multiple: int):
+def get_standard_transform(resolution: List[int], resize_multiple: int, preprocessor = None):
     transform = [
         ResizeTransform(resolution, resize_multiple),
     ]
@@ -69,5 +69,9 @@ def get_standard_transform(resolution: List[int], resize_multiple: int):
         transforms.ToImage(),
         transforms.ToDtype(torch.float32, scale=True),
     ])
+
+    if preprocessor is not None:
+        transform.append(preprocessor)
+
     transform = transforms.Compose(transform)
     return transform
