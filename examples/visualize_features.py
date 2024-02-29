@@ -138,12 +138,12 @@ def main(rank: int = 0, world_size: int = 1):
             num_rows = images.shape[-2] // patch_size
             num_cols = images.shape[-1] // patch_size
 
-            features = rearrange(features, 'b (h w) c -> b h w c', h=num_rows, w=num_cols)
+            features = rearrange(features, 'b (h w) c -> b h w c', h=num_rows, w=num_cols).float()
 
             for i, feat in enumerate(features):
                 color = get_pca_map(feat, images.shape[-2:])
 
-                orig = images[i].permute(1, 2, 0).cpu().numpy()
+                orig = cv2.cvtColor(images[i].permute(1, 2, 0).cpu().numpy(), cv2.COLOR_RGB2BGR)
 
                 op = np.concatenate([orig, color], axis=1) * 255
 
