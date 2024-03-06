@@ -79,13 +79,14 @@ def main(rank: int = 0, world_size: int = 1):
     args, _ = parser.parse_known_args()
 
     rank_print('Loading model...')
-    model, preprocessor, info = load_model(args.model_version, adaptor_name=args.adaptor_name, return_spatial_features=False,
+    model, preprocessor, info = load_model(args.model_version, adaptor_names=args.adaptor_name, return_spatial_features=False,
                                            vitdet_window_size=args.vitdet_window_size)
     model.to(device=device).eval()
     rank_print('Done')
 
     rank_print('Loading dataset...')
     ds_builder = load_dataset_builder(args.dataset, trust_remote_code=True)
+    ds_builder.download_and_prepare()
     num_examples = ds_builder.info.splits[args.split].num_examples
 
     if args.resolution is None:

@@ -80,7 +80,7 @@ class ModelInfo:
     model_subtype: str
 
 
-def load_model(version: str, adaptor_name: str = None, use_huggingface: bool = False, use_local_lib: bool = True,
+def load_model(version: str, adaptor_names: str = None, use_huggingface: bool = False, use_local_lib: bool = True,
                device: torch.device = None, return_spatial_features: bool = True, **kwargs):
     kwargs = {k: v for k, v in kwargs.items() if v is not None}
 
@@ -90,10 +90,10 @@ def load_model(version: str, adaptor_name: str = None, use_huggingface: bool = F
             model: nn.Module = AutoModel.from_pretrained(f"nvidia/{version}", trust_remote_code=True, **kwargs)
         elif use_local_lib:
             from hubconf import radio_model
-            model = radio_model(version=version, progress=True, **kwargs)
+            model = radio_model(version=version, progress=True, adaptor_names=adaptor_names, **kwargs)
         else:
             model: nn.Module = torch.hub.load('NVlabs/RADIO', 'radio_model', version=version, progress=True,
-                                              adaptor_name=adaptor_name, return_spatial_features=return_spatial_features,
+                                              adaptor_names=adaptor_names, return_spatial_features=return_spatial_features,
                                               **kwargs,
             )
 
@@ -120,7 +120,7 @@ def load_model(version: str, adaptor_name: str = None, use_huggingface: bool = F
 
         tokenizer = open_clip.get_tokenizer(model_arch)
 
-        model = CLIPWrapper(model, tokenizer, adaptor_name, clip_mode='clip' in adaptor_name if adaptor_name else False)
+        model = CLIPWrapper(model, tokenizer, adaptor_names, clip_mode='clip' in adaptor_names if adaptor_names else False)
         info = ModelInfo(model_class='open_clip', model_subtype=pretrained)
     else:
         raise ValueError(f'Unsupported model version: {version}')
