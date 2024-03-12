@@ -12,6 +12,8 @@ import torch
 
 from ..radio_model import RADIOModel
 
+from .generic import GenericAdaptor
+
 dict_t = Dict[str, Any]
 state_t = Dict[str, torch.Tensor]
 
@@ -30,7 +32,7 @@ class AdaptorRegistry:
 
     def create_adaptor(self, name, main_config: Namespace, adaptor_config: dict_t, state: state_t):
         if name not in self._registry:
-            raise ValueError(f"Adaptor '{name}' not found in registry")
+            return GenericAdaptor(main_config, adaptor_config, state)
         return self._registry[name](main_config, adaptor_config, state)
 
 # Creating an instance of the registry

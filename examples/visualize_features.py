@@ -82,6 +82,7 @@ def main(rank: int = 0, world_size: int = 1):
     parser.add_argument('--workers', default=8, type=int, help='Number of loader workers to use')
     parser.add_argument('--vitdet-window-size', default=None, type=int, help='Enable ViTDet at the specific window size')
     parser.add_argument('--output-dir', default='vis_denoise', type=str)
+    parser.add_argument('--adaptor-name', default=None, type=str, help='Generate features from a teacher adaptor')
 
     args, _ = parser.parse_known_args()
 
@@ -90,7 +91,7 @@ def main(rank: int = 0, world_size: int = 1):
     random.seed(42 + rank)
 
     rank_print('Loading model...')
-    model, preprocessor, info = load_model(args.model_version, vitdet_window_size=args.vitdet_window_size)
+    model, preprocessor, info = load_model(args.model_version, vitdet_window_size=args.vitdet_window_size, adaptor_name=args.adaptor_name)
     model.to(device=device).eval()
     if isinstance(preprocessor, nn.Module):
         preprocessor.to(device).eval()
@@ -121,7 +122,14 @@ def main(rank: int = 0, world_size: int = 1):
     rank_print('Done')
     rank_print(f'Description: {ds_builder.info.description}')
 
-    os.makedirs(args.output_dir, exist_ok=True)
+    dirs = dict(
+        orig=os.path.join(args.output_dir, 'orig'),
+        viz=os.path.join(args.output_dir, 'viz'),
+        sbs=os.path.join(args.output_dir, 'sbs'),
+    )
+
+    for d in dirs.values():
+        os.makedirs(d, exist_ok=True)
 
     ctr = 0
     for batches in loader:
@@ -131,23 +139,40 @@ def main(rank: int = 0, world_size: int = 1):
         for images, _ in batches:
             images = images.to(device=device, non_blocking=True)
 
+            all_feat = []
             with torch.autocast(device.type, dtype=torch.bfloat16):
                 p_images = preprocessor(images)
-                _, features = model(p_images)
+
+                output = model(p_images)
+                if args.adaptor_name:
+                    all_feat = [
+                        output['backbone'].features,
+                        output[args.adaptor_name].features,
+                    ]
+                else:
+                    all_feat = [output[1]]
+
+            all_feat = torch.stack(all_feat, dim=1)
 
             num_rows = images.shape[-2] // patch_size
             num_cols = images.shape[-1] // patch_size
 
-            features = rearrange(features, 'b (h w) c -> b h w c', h=num_rows, w=num_cols).float()
+            all_feat = rearrange(all_feat, 'b m (h w) c -> b m h w c', h=num_rows, w=num_cols).float()
 
-            for i, feat in enumerate(features):
-                color = get_pca_map(feat, images.shape[-2:])
+            for i, feats in enumerate(all_feat):
+                colored = []
+                for features in feats:
+                    color = get_pca_map(features, images.shape[-2:])
+                    colored.append(color)
 
                 orig = cv2.cvtColor(images[i].permute(1, 2, 0).cpu().numpy(), cv2.COLOR_RGB2BGR)
 
-                op = np.concatenate([orig, color], axis=1) * 255
+                cv2.imwrite(f'{dirs["orig"]}/vis_{ctr}.jpg', orig * 255)
+                cv2.imwrite(f'{dirs["viz"]}/vis_{ctr}.jpg', colored[-1] * 255)
 
-                cv2.imwrite(f'{args.output_dir}/vis_{ctr}.jpg', op)
+                op = np.concatenate([orig] + colored, axis=1) * 255
+
+                cv2.imwrite(f'{dirs["sbs"]}/vis_{ctr}.jpg', op)
                 ctr += 1
 
 

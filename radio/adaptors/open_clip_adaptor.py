@@ -15,13 +15,12 @@ from radio.radio_model import AdaptorInput, RadioOutput
 from radio.adaptors.adaptor_registry import adaptor_registry, dict_t, state_t
 from radio.adaptors.mlp import create_mlp_from_state
 
+from .generic import GenericAdaptor
 
-class OpenCLIP_RADIO(nn.Module):
+
+class OpenCLIP_RADIO(GenericAdaptor):
     def __init__(self, main_config: Namespace, adaptor_config: dict_t, state: state_t):
-        super().__init__()
-
-        self.head_mlp = create_mlp_from_state(main_config.mlp_version, state, 'summary.')
-        self.feat_mlp = create_mlp_from_state(main_config.mlp_version, state, 'feature.')
+        super().__init__(main_config, adaptor_config, state)
 
         import open_clip
 
@@ -34,12 +33,6 @@ class OpenCLIP_RADIO(nn.Module):
         self.oc_model.visual = None
 
         self.tokenizer = open_clip.get_tokenizer(model_name=adaptor_config['model'])
-
-    def forward(self, input: AdaptorInput):
-        summary = self.head_mlp(input.summary)
-        feat = self.feat_mlp(input.features)
-
-        return RadioOutput(summary, feat)
 
     def encode_text(self, text, normalize: bool = False):
         return self.oc_model.encode_text(text, normalize=normalize)
