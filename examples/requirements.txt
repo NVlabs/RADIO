@@ -5,3 +5,4 @@ open_clip_torch
 albumentations
 opencv-python==4.8.0.74
 opencv-python-headless==4.8.0.74
+git+https://github.com/facebookresearch/segment-anything.git

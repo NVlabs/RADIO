@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 import os
+from typing import Tuple
 
 import torch
 from torch import nn
@@ -74,6 +75,34 @@ class CLIPWrapper(nn.Module):
         return self.inner.encode_text(text, normalize=normalize)
 
 
+class SAMWrapper(nn.Module):
+    def __init__(self, sam_encoder: nn.Module):
+        super().__init__()
+        self.inner = sam_encoder
+
+    @property
+    def embed_dim(self):
+        return self.inner.patch_embed.proj.out_channels
+
+    @property
+    def patch_size(self):
+        return self.inner.patch_embed.proj.kernel_size[0]
+
+    def forward(self, x: torch.Tensor, **kwargs) -> Tuple[torch.Tensor, torch.Tensor]:
+        x = self.inner.patch_embed(x)
+        if self.inner.pos_embed is not None:
+            x = x + self.inner.pos_embed
+
+        for blk in self.inner.blocks:
+            x = blk(x)
+
+        features = x.flatten(1, 2)
+
+        summary = features.mean(dim=1)
+
+        return summary, features
+
+
 @dataclass
 class ModelInfo:
     model_class: str
@@ -122,6 +151,25 @@ def load_model(version: str, adaptor_names: str = None, use_huggingface: bool = 
 
         model = CLIPWrapper(model, tokenizer, adaptor_names, clip_mode='clip' in adaptor_names if adaptor_names else False)
         info = ModelInfo(model_class='open_clip', model_subtype=pretrained)
+    elif version.startswith('sam'):
+        from segment_anything.build_sam import sam_model_registry, ImageEncoderViT, Sam
+        _, chk_path = version.split(',')
+        fname = os.path.basename(chk_path)
+        prefix = 'sam_vit_'
+        assert fname.startswith(prefix) and fname[len(prefix)] in ('h', 'l', 'b'), "Invalid checkpoint file"
+        model_name = fname[4:9]
+        model = sam_model_registry[model_name](checkpoint=chk_path)
+
+        from radio.input_conditioner import InputConditioner
+        preprocessor = InputConditioner(
+            input_scale=255.0,
+            norm_mean=model.pixel_mean,
+            norm_std=model.pixel_std,
+        )
+
+        img_encoder = model.image_encoder
+        model = SAMWrapper(img_encoder)
+        info = ModelInfo(model_class='SAM', model_subtype=model_name)
     else:
         raise ValueError(f'Unsupported model version: {version}')
 
