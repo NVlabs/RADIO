@@ -1,4 +1,4 @@
-from collections import defaultdict
+from collections import defaultdict, abc
 from contextlib import contextmanager
 import math
 from typing import List, Dict, Union, Tuple, Optional
@@ -14,14 +14,18 @@ def round_up(value, multiple: int):
 
 
 def collate(samples: List[Dict[str, torch.Tensor]]):
-    images = [
-        s['image']
-        for s in samples
-    ]
-    labels = [
-        s['label']
-        for s in samples
-    ]
+    if isinstance(samples[0], abc.Mapping):
+        images = [
+            s['image']
+            for s in samples
+        ]
+        labels = [
+            s['label']
+            for s in samples
+        ]
+    else:
+        images = [torch.as_tensor(s[0]) for s in samples]
+        labels = [torch.as_tensor(s[1]) for s in samples]
 
     size_groups = defaultdict(lambda: [[],[]])
     for im, lab in zip(images, labels):

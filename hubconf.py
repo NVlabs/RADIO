@@ -41,9 +41,13 @@ resource_map = {
                               patch_size=16, max_resolution=2048,
                               preferred_resolution=Resolution(432, 432),
     ),
+    "radio_v2.1": RadioResource("https://huggingface.co/nvidia/RADIO/resolve/main/radio_v2.1_bf16.pth.tar?download=true",
+                                patch_size=16, max_resolution=2048,
+                                preferred_resolution=Resolution(432, 432),
+    ),
 }
 
-_DEFAULT_VERSION = "radio_v2"
+_DEFAULT_VERSION = "radio_v2.1"
 
 
 def radio_model(
