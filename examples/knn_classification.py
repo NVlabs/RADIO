@@ -39,7 +39,7 @@ def main(rank: int = 0, world_size: int = 1):
     parser.add_argument('-v', '--model-version', default='radio_v2',
                         help='Which radio model to load.'
     )
-
+    parser.add_argument('-a', '--adaptor-name', type=str, default=None, help='Which head to use, if any')
     parser.add_argument('-r', '--resolution', nargs='+', type=int, default=None,
                         help='The input image resolution.'
                         ' If one value is specified, the shortest dimension is resized to this.'
@@ -81,11 +81,12 @@ def main(rank: int = 0, world_size: int = 1):
     parser.add_argument('--force-reload', default=False, action='store_true',
                         help='Force reload RADIO library'
     )
+    parser.add_argument('--amp', default=False, action='store_true', help='Run in mixed precision')
 
     args, _ = parser.parse_known_args()
 
     rank_print('Loading model...')
-    model, preprocessor, info = load_model(args.model_version, vitdet_window_size=args.vitdet_window_size)
+    model, preprocessor, info = load_model(args.model_version, vitdet_window_size=args.vitdet_window_size, adaptor_names=args.adaptor_name)
     model.to(device=device).eval()
     rank_print('Done')
 
@@ -143,11 +144,11 @@ def main(rank: int = 0, world_size: int = 1):
     # First, create a database of training embeddings with their corresponding labels
     # We only store 1/world_size training embeddings
     rank_print(f'Building {args.train_split} database...')
-    train_embeddings, train_labels = _build_database(train_dataset, model, device, num_train_steps, rank)
+    train_embeddings, train_labels = _build_database(train_dataset, model, device, num_train_steps, rank, amp=args.amp, adaptor=args.adaptor_name)
 
     # Gather all of the eval labels onto all of the ranks
     rank_print(f'Building {args.eval_split} database...')
-    eval_embeddings, eval_labels = _build_database(eval_dataset, model, device, num_eval_steps, rank)
+    eval_embeddings, eval_labels = _build_database(eval_dataset, model, device, num_eval_steps, rank, amp=args.amp, adaptor=args.adaptor_name)
     num_valid = eval_labels.shape[0]
 
     rank_print('Calculating accuracy...')
@@ -319,7 +320,7 @@ def _knn_top1_accuracy(
 
 
 @torch.no_grad()
-def _build_database(dataset, model: nn.Module, device: torch.device, num_steps: int, rank: int):
+def _build_database(dataset, model: nn.Module, device: torch.device, num_steps: int, rank: int, amp: bool = True, adaptor: str = None):
     embeddings = []
     db_labels = []
     for batches in tqdm(dataset, total=num_steps, disable=rank > 0):
@@ -327,8 +328,12 @@ def _build_database(dataset, model: nn.Module, device: torch.device, num_steps: 
             images = batch[0].to(device=device, non_blocking=True)
             labels = batch[1].to(device=device, non_blocking=True)
 
-            with torch.autocast(device.type, dtype=torch.bfloat16):
-                summary, features = model(images)
+            with torch.autocast(device.type, dtype=torch.bfloat16, enabled=amp):
+                output = model(images)
+                if adaptor is None:
+                    summary, features = output
+                else:
+                    summary, features = output[adaptor]
 
             summary = F.normalize(summary, p=2, dim=1)
 

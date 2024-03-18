@@ -11,18 +11,18 @@ import torch
 from torch import nn
 import torch.nn.functional as F
 
-from radio.radio_model import AdaptorInput, RadioOutput
+from radio.adaptors.adaptor_base import AdaptorBase, AdaptorInput, RadioOutput
 from radio.adaptors.mlp import create_mlp_from_state
 
 
-class GenericAdaptor(nn.Module):
+class GenericAdaptor(AdaptorBase):
     def __init__(self, main_config: Namespace, adaptor_config, state):
         super().__init__()
 
         self.head_mlp = create_mlp_from_state(main_config.mlp_version, state, 'summary.')
         self.feat_mlp = create_mlp_from_state(main_config.mlp_version, state, 'feature.')
 
-    def forward(self, input: AdaptorInput):
+    def forward(self, input: AdaptorInput) -> RadioOutput:
         summary = self.head_mlp(input.summary)
         feat = self.feat_mlp(input.features)
 

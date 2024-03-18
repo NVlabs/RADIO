@@ -88,6 +88,10 @@ def radio_model(
     conditioner = get_default_conditioner()
     conditioner.load_state_dict(get_prefix_state_dict(state_dict, "input_conditioner."))
 
+    dtype = getattr(chk['args'], 'dtype', torch.float32)
+    mod.to(dtype=dtype)
+    conditioner.dtype = dtype
+
     summary_idxs = torch.tensor([
         i
         for i, t in enumerate(chk["args"].teachers)
