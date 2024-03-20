@@ -9,3 +9,4 @@
 # Register the adaptors
 from .adaptor_registry import adaptor_registry
 from . import open_clip_adaptor
+from .adaptor_base import AdaptorInput, RadioOutput, AdaptorBase

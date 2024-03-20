@@ -41,9 +41,13 @@ resource_map = {
                               patch_size=16, max_resolution=2048,
                               preferred_resolution=Resolution(432, 432),
     ),
+    "radio_v2.1": RadioResource("https://huggingface.co/nvidia/RADIO/resolve/main/radio_v2.1_bf16.pth.tar?download=true",
+                                patch_size=16, max_resolution=2048,
+                                preferred_resolution=Resolution(432, 432),
+    ),
 }
 
-_DEFAULT_VERSION = "radio_v2"
+_DEFAULT_VERSION = "radio_v2.1"
 
 
 def radio_model(
@@ -83,6 +87,10 @@ def radio_model(
 
     conditioner = get_default_conditioner()
     conditioner.load_state_dict(get_prefix_state_dict(state_dict, "input_conditioner."))
+
+    dtype = getattr(chk['args'], 'dtype', torch.float32)
+    mod.to(dtype=dtype)
+    conditioner.dtype = dtype
 
     summary_idxs = torch.tensor([
         i

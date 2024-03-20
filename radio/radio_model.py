@@ -16,22 +16,12 @@ from .enable_cpe_support import enable_cpe
 from .input_conditioner import InputConditioner
 # Register extra models
 from . import extra_timm_models
+from .adaptors import AdaptorBase, RadioOutput, AdaptorInput
 
 
 class Resolution(NamedTuple):
     height: int
     width: int
-
-
-class AdaptorInput(NamedTuple):
-    images: torch.Tensor
-    summary: torch.Tensor
-    features: torch.Tensor
-
-
-class RadioOutput(NamedTuple):
-    summary: torch.Tensor
-    features: torch.Tensor
 
 
 class RADIOModel(nn.Module):
@@ -44,7 +34,7 @@ class RADIOModel(nn.Module):
         preferred_resolution: Resolution,
         summary_idxs: Optional[torch.Tensor] = None,
         window_size: int = None,
-        adaptors: Dict[str, nn.Module] = None,
+        adaptors: Dict[str, AdaptorBase] = None,
     ):
         super().__init__()
 
@@ -137,13 +127,14 @@ class RADIOModel(nn.Module):
         else:
             raise ValueError("Unsupported model type")
 
-        ret = RadioOutput(bb_summary.flatten(1), all_feat)
+        all_feat = all_feat.float()
+        ret = RadioOutput(bb_summary.flatten(1), all_feat).to(torch.float32)
         if self.adaptors:
             ret = dict(backbone=ret)
             for name, adaptor in self.adaptors.items():
                 summary = all_summary[:, adaptor.head_idx]
-                ada_input = AdaptorInput(images=x, summary=summary, features=all_feat)
-                v = adaptor(ada_input)
+                ada_input = AdaptorInput(images=x, summary=summary.float(), features=all_feat)
+                v = adaptor(ada_input).to(torch.float32)
                 ret[name] = v
 
         return ret

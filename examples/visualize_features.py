@@ -7,6 +7,7 @@
 # license agreement from NVIDIA CORPORATION is strictly prohibited.
 import argparse
 from collections import defaultdict
+from functools import partial
 import gc
 import math
 import os
@@ -23,6 +24,7 @@ import torch.distributed as dist
 from torch.utils.data import DataLoader
 import torch.nn.functional as F
 from torchvision.utils import make_grid
+from torchvision.datasets import ImageFolder
 
 from einops import rearrange
 
@@ -64,7 +66,7 @@ def main(rank: int = 0, world_size: int = 1):
     parser.add_argument('--split', default='validation',
                         help='The dataset split to use.'
     )
-    parser.add_argument('-n', default=10, type=int, help='The number of samples to load')
+    parser.add_argument('-n', default=128, type=int, help='The number of samples to load')
     parser.add_argument('-r', '--resolution', nargs='+', type=int, default=None,
                         help='The input image resolution.'
                              ' If one value is specified, the shortest dimension is resized to this.'
@@ -72,6 +74,7 @@ def main(rank: int = 0, world_size: int = 1):
                              ' If not specified, center cropped 378px is used.'
                              ' Default: The RADIO model\'s preferred resolution.'
     )
+    parser.add_argument('--max-dim', default=False, action='store_true', help='Resize the max dimension to the specified resolution')
     parser.add_argument('--resize-multiple', type=int, default=None,
                         help='Resize images with dimensions a multiple of this value.'
                              ' This should be equal to the patch size of a ViT (e.g. RADIOv1)'
@@ -83,6 +86,7 @@ def main(rank: int = 0, world_size: int = 1):
     parser.add_argument('--vitdet-window-size', default=None, type=int, help='Enable ViTDet at the specific window size')
     parser.add_argument('--output-dir', default='vis_denoise', type=str)
     parser.add_argument('--adaptor-name', default=None, type=str, help='Generate features from a teacher adaptor')
+    parser.add_argument('--patch-size', default=None, type=int, help='The model patch size')
 
     args, _ = parser.parse_known_args()
 
@@ -90,37 +94,42 @@ def main(rank: int = 0, world_size: int = 1):
     np.random.seed(42 + rank)
     random.seed(42 + rank)
 
-    rank_print('Loading model...')
-    model, preprocessor, info = load_model(args.model_version, vitdet_window_size=args.vitdet_window_size, adaptor_name=args.adaptor_name)
+    rank_print(f'Loading model: "{args.model_version}", ViTDet: {args.vitdet_window_size}, Adaptor: "{args.adaptor_name}", Resolution: {args.resolution}, Max: {args.max_dim}...')
+    model, preprocessor, info = load_model(args.model_version, vitdet_window_size=args.vitdet_window_size, adaptor_names=args.adaptor_name)
     model.to(device=device).eval()
     if isinstance(preprocessor, nn.Module):
         preprocessor.to(device).eval()
     rank_print('Done')
 
     rank_print('Loading dataset...')
-    ds_builder = load_dataset_builder(args.dataset, trust_remote_code=True)
 
     if args.resolution is None:
         args.resolution = (model.preferred_resolution.height, model.preferred_resolution.width)
 
-    patch_size = model.patch_size
+    patch_size = getattr(model, 'patch_size', None) or args.patch_size
 
     if args.resize_multiple is None:
-        args.resize_multiple = getattr(model, 'min_resolution_step', model.patch_size)
+        args.resize_multiple = getattr(model, 'min_resolution_step', patch_size)
 
-    transform = get_standard_transform(args.resolution, args.resize_multiple)
-    dataset = ds_builder.as_dataset(split=args.split)
-    dataset = dataset.to_iterable_dataset(num_shards=world_size * max(1, args.workers))
-    dataset = split_dataset_by_node(dataset, rank=rank, world_size=world_size)
-    dataset = dataset.map(lambda ex: dict(image=transform(ex['image']), label=torch.as_tensor(ex['label'], dtype=torch.int64)))
+    transform = get_standard_transform(args.resolution, args.resize_multiple, max_dim=args.max_dim)
+
+    if not os.path.isdir(args.dataset):
+        ds_builder = load_dataset_builder(args.dataset, trust_remote_code=True)
+        dataset = ds_builder.as_dataset(split=args.split)
+        dataset = dataset.to_iterable_dataset(num_shards=world_size * max(1, args.workers))
+        dataset = split_dataset_by_node(dataset, rank=rank, world_size=world_size)
+        dataset = dataset.map(lambda ex: dict(image=transform(ex['image']), label=torch.as_tensor(ex['label'], dtype=torch.int64)))
+        rank_print(f'Description: {ds_builder.info.description}')
+    else:
+        dataset = ImageFolder(args.dataset, transform=transform)
+        dataset.samples.sort(key=lambda s: s[0])
 
     loader = DataLoader(dataset, batch_size=args.batch_size, shuffle=False,
-                        num_workers=args.workers, collate_fn=collate,
+                        num_workers=args.workers, collate_fn=partial(collate, group=False),
                         pin_memory=args.workers > 0,
                         drop_last=False,
     )
     rank_print('Done')
-    rank_print(f'Description: {ds_builder.info.description}')
 
     dirs = dict(
         orig=os.path.join(args.output_dir, 'orig'),
@@ -152,12 +161,19 @@ def main(rank: int = 0, world_size: int = 1):
                 else:
                     all_feat = [output[1]]
 
-            all_feat = torch.stack(all_feat, dim=1)
 
             num_rows = images.shape[-2] // patch_size
             num_cols = images.shape[-1] // patch_size
 
-            all_feat = rearrange(all_feat, 'b m (h w) c -> b m h w c', h=num_rows, w=num_cols).float()
+            # m b h w c
+            all_feat = [
+                rearrange(f, 'b (h w) c -> b h w c', h=num_rows, w=num_cols).float()
+                for f in all_feat
+            ]
+            # all_feat = rearrange(all_feat, 'b m (h w) c -> b m h w c', h=num_rows, w=num_cols).float()
+
+            # b m h w c
+            all_feat = list(zip(*all_feat))
 
             for i, feats in enumerate(all_feat):
                 colored = []

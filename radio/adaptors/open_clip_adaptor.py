@@ -11,9 +11,7 @@ import torch
 from torch import nn
 import torch.nn.functional as F
 
-from radio.radio_model import AdaptorInput, RadioOutput
-from radio.adaptors.adaptor_registry import adaptor_registry, dict_t, state_t
-from radio.adaptors.mlp import create_mlp_from_state
+from .adaptor_registry import adaptor_registry, dict_t, state_t
 
 from .generic import GenericAdaptor
 

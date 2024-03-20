@@ -75,6 +75,7 @@ def main(rank: int = 0, world_size: int = 1):
     parser.add_argument('--force-reload', default=False, action='store_true',
                         help='Force reload RADIO library'
     )
+    parser.add_argument('--amp', default=False, action='store_true', help='Run in amp')
 
     args, _ = parser.parse_known_args()
 
@@ -129,7 +130,7 @@ def main(rank: int = 0, world_size: int = 1):
                 images = images.to(device=device, non_blocking=True)
                 targets = targets.to(device=device, non_blocking=True)
 
-                with torch.autocast(device.type, dtype=torch.bfloat16):
+                with torch.autocast(device.type, dtype=torch.bfloat16, enabled=args.amp):
                     output = model(images)
                     summary = output[args.adaptor_name].summary
                     summary = F.normalize(summary, dim=-1)

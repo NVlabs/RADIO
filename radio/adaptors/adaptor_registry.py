@@ -10,9 +10,7 @@ from typing import Dict, Any
 
 import torch
 
-from ..radio_model import RADIOModel
-
-from .generic import GenericAdaptor
+from .generic import GenericAdaptor, AdaptorBase
 
 dict_t = Dict[str, Any]
 state_t = Dict[str, torch.Tensor]
@@ -30,7 +28,7 @@ class AdaptorRegistry:
             return factory_function
         return decorator
 
-    def create_adaptor(self, name, main_config: Namespace, adaptor_config: dict_t, state: state_t):
+    def create_adaptor(self, name, main_config: Namespace, adaptor_config: dict_t, state: state_t) -> AdaptorBase:
         if name not in self._registry:
             return GenericAdaptor(main_config, adaptor_config, state)
         return self._registry[name](main_config, adaptor_config, state)
