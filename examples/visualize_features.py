@@ -7,6 +7,7 @@
 # license agreement from NVIDIA CORPORATION is strictly prohibited.
 import argparse
 from collections import defaultdict
+from functools import partial
 import gc
 import math
 import os
@@ -73,6 +74,7 @@ def main(rank: int = 0, world_size: int = 1):
                              ' If not specified, center cropped 378px is used.'
                              ' Default: The RADIO model\'s preferred resolution.'
     )
+    parser.add_argument('--max-dim', default=False, action='store_true', help='Resize the max dimension to the specified resolution')
     parser.add_argument('--resize-multiple', type=int, default=None,
                         help='Resize images with dimensions a multiple of this value.'
                              ' This should be equal to the patch size of a ViT (e.g. RADIOv1)'
@@ -92,7 +94,7 @@ def main(rank: int = 0, world_size: int = 1):
     np.random.seed(42 + rank)
     random.seed(42 + rank)
 
-    rank_print('Loading model...')
+    rank_print(f'Loading model: "{args.model_version}", ViTDet: {args.vitdet_window_size}, Adaptor: "{args.adaptor_name}", Resolution: {args.resolution}, Max: {args.max_dim}...')
     model, preprocessor, info = load_model(args.model_version, vitdet_window_size=args.vitdet_window_size, adaptor_names=args.adaptor_name)
     model.to(device=device).eval()
     if isinstance(preprocessor, nn.Module):
@@ -109,7 +111,7 @@ def main(rank: int = 0, world_size: int = 1):
     if args.resize_multiple is None:
         args.resize_multiple = getattr(model, 'min_resolution_step', patch_size)
 
-    transform = get_standard_transform(args.resolution, args.resize_multiple)
+    transform = get_standard_transform(args.resolution, args.resize_multiple, max_dim=args.max_dim)
 
     if not os.path.isdir(args.dataset):
         ds_builder = load_dataset_builder(args.dataset, trust_remote_code=True)
@@ -120,9 +122,10 @@ def main(rank: int = 0, world_size: int = 1):
         rank_print(f'Description: {ds_builder.info.description}')
     else:
         dataset = ImageFolder(args.dataset, transform=transform)
+        dataset.samples.sort(key=lambda s: s[0])
 
     loader = DataLoader(dataset, batch_size=args.batch_size, shuffle=False,
-                        num_workers=args.workers, collate_fn=collate,
+                        num_workers=args.workers, collate_fn=partial(collate, group=False),
                         pin_memory=args.workers > 0,
                         drop_last=False,
     )

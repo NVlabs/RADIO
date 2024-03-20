@@ -13,7 +13,7 @@ def round_up(value, multiple: int):
     return int(math.ceil(value / multiple))
 
 
-def collate(samples: List[Dict[str, torch.Tensor]]):
+def collate(samples: List[Dict[str, torch.Tensor]], group: bool = True):
     if isinstance(samples[0], abc.Mapping):
         images = [
             s['image']
@@ -27,16 +27,23 @@ def collate(samples: List[Dict[str, torch.Tensor]]):
         images = [torch.as_tensor(s[0]) for s in samples]
         labels = [torch.as_tensor(s[1]) for s in samples]
 
-    size_groups = defaultdict(lambda: [[],[]])
-    for im, lab in zip(images, labels):
-        grp = size_groups[im.shape]
-        grp[0].append(im)
-        grp[1].append(lab)
+    if group:
+        size_groups = defaultdict(lambda: [[],[]])
+        for im, lab in zip(images, labels):
+            grp = size_groups[im.shape]
+            grp[0].append(im)
+            grp[1].append(lab)
 
-    ret = [
-        (torch.stack(g[0]), torch.stack(g[1]))
-        for g in size_groups.values()
-    ]
+        ret = [
+            (torch.stack(g[0]), torch.stack(g[1]))
+            for g in size_groups.values()
+        ]
+    else:
+        ret = [
+            (i[None], l[None])
+            for i, l in zip(images, labels)
+        ]
+
     return ret
 
 

@@ -7,11 +7,12 @@ import torchvision.transforms.v2 as transforms
 
 
 class ResizeTransform(transforms.Transform):
-    def __init__(self, size: Iterable[int], resize_multiple: int = 1):
+    def __init__(self, size: Iterable[int], resize_multiple: int = 1, max_dim: bool = False):
         super().__init__()
 
         self.size = size
         self.resize_multiple = resize_multiple
+        self.max_dim = max_dim
 
     def _get_nearest(self, value: int):
         return int(round(value / self.resize_multiple) * self.resize_multiple)
@@ -20,11 +21,16 @@ class ResizeTransform(transforms.Transform):
         height, width = transforms._utils.query_size(flat_inputs)
 
         if len(self.size) == 1:
-            # Shortest-side mode.
-            # Resize the short dimension of the image to be the specified size,
-            # and the other dimension aspect preserving
-            min_sz = min(height, width)
-            factor = self.size[0] / min_sz
+            if not self.max_dim:
+                # Shortest-side mode.
+                # Resize the short dimension of the image to be the specified size,
+                # and the other dimension aspect preserving
+                min_sz = min(height, width)
+                factor = self.size[0] / min_sz
+            else:
+                # Longest-side mode
+                max_sz = max(height, width)
+                factor = self.size[0] / max_sz
 
             rs_height = height * factor
             rs_width = width * factor
@@ -35,7 +41,7 @@ class ResizeTransform(transforms.Transform):
             out_aspect = self.size[0] / self.size[1]
 
             # Input height varies faster than output
-            if in_aspect > out_aspect:
+            if (in_aspect > out_aspect and not self.max_dim) or (in_aspect < out_aspect and self.max_dim):
                 scale = self.size[1] / width
             else:
                 scale = self.size[0] / height
@@ -59,11 +65,35 @@ class ResizeTransform(transforms.Transform):
         return transforms.functional.resize(inpt, size=size, interpolation=transforms.InterpolationMode.BICUBIC)
 
 
-def get_standard_transform(resolution: List[int], resize_multiple: int, preprocessor = None):
+class PadToSquare(transforms.Transform):
+    def _get_params(self, flat_inputs: List[Any]) -> Dict[str, Any]:
+        height, width = transforms._utils.query_size(flat_inputs)
+
+        max_sz = max(height, width)
+
+        pad_h = max(0, height - max_sz)
+        pad_w = max(0, width - max_sz)
+
+        top = pad_h // 2
+        left = pad_w // 2
+        bottom = pad_h - top
+        right = pad_w - left
+
+        return dict(size=(left, top, right, bottom))
+
+    def _transform(self, inpt: Any, params: Dict[str, Any]) -> Any:
+        size = params['size']
+
+        return transforms.functional.pad(inpt, size, fill=0)
+
+
+
+def get_standard_transform(resolution: List[int], resize_multiple: int, preprocessor = None, max_dim: bool = False):
     transform = [
-        ResizeTransform(resolution, resize_multiple),
+        ResizeTransform(resolution, resize_multiple, max_dim=max_dim),
     ]
     if len(resolution) == 2:
+        transform.append(PadToSquare())
         transform.append(transforms.CenterCrop(resolution))
     transform.extend([
         transforms.ToImage(),
