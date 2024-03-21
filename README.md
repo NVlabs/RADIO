@@ -1,11 +1,33 @@
-# AM-RADIO: Reduce All Domains Into One
+# \[CVPR 2024\] AM-RADIO: Reduce All Domains Into One
 
-Mike Ranzinger, Greg Heinrich, Jan Kautz, Pavlo Molchanov
+<div align="center">
+  <img src="assets/radio.png" width="200"/>
+</div>
+
+Official PyTorch implementation of \[CVPR 2024\] [**AM-RADIO: Agglomerative Model – Reduce All Domains Into One**](https://arxiv.org/abs/2312.06709v3).
+
+[![Star on GitHub](https://img.shields.io/github/stars/NVlabs/RADIO.svg?style=social)](https://github.com/NVlabs/RADIO/stargazers)
+
+Mike Ranzinger, Greg Heinrich, [Jan Kautz](https://jankautz.com/), [Pavlo Molchanov](https://www.pmolchanov.com/).
 
 [NVIDIA Research](https://www.nvidia.com/en-us/research/)
 
+For business inquiries, please visit our website and submit the form: [NVIDIA Research Licensing](https://www.nvidia.com/en-us/research/inquiries/)
+
 \[[Paper](https://arxiv.org/abs/2312.06709)\]\[[BibTex](#citing-radio)\]
 
+---
+
+AM-RADIO is a framework to distill Large Vision Foundation models into a single one. 
+RADIO, a new vision foundation model, excels across visual domains, serving as a superior replacement for vision backbones. Integrating CLIP variants, DINOv2, and SAM through distillation, it preserves unique features like text grounding and segmentation correspondence. Outperforming teachers in ImageNet zero-shot (+6.8%), kNN (+2.39%), and linear probing segmentation (+3.8%) and vision-language models (LLaVa 1.5 up to 1.5%), it scales to any resolution, supports non-square images. We offer an efficient variant, E-RADIO, which achieves is 6-10x faster than CLIP and DINOv2.
+
+
+## News/Release
+- [3.21.2024] 🔥 RADIOv2.1 is released. Trained in bf16, improves metrics! 
+- [2.26.2024] 🔥 AM-RADIO paper has been accepted to ** CVPR 2024 **
+- [2.15.2024]  RADIOv2 is released. Trained with DFN CLIP; OpenAI CLIP; DINOv2; SAM teachers. Note that SAM teacher was not used in previous models.
+- [1.5.2024] Initial github repo is released.
+  
 ## Pretrained Models
 
 | Name       | Architecture | Precision | Teachers                                 | Throughput | Zero Shot Top-1 | kNN Top-1 | ADE20k    | VOC       | GQA       | TextVQA   | VQAv2     | SAM-COCO  |
@@ -15,6 +37,8 @@ Mike Ranzinger, Greg Heinrich, Jan Kautz, Pavlo Molchanov
 | radio_v1   | ViT-H/14-CPE | Float32   | DFN CLIP; OpenAI CLIP; DINOv2            | 556        | 82.73           | 85.29     | 50.32     | **85.17** | 61.43     | 54.92     | 77.88     |           |
 | eradio_v1  | E-RADIO      | Float32   | Meta CLIP; DINOv2                        | 3697       | 77.87           | 83.73     | 45.50     | 79.95     | 59.55     | 46.31     | 72.05     |           |
 
+
+## Quick Start
 
 ### TorchHub
 
@@ -111,25 +135,10 @@ output = model(images)
 
 _Coming Soon_
 
-## License
+## Star History
 
-RADIO code and weights are released under the [NSCLv1 License](LICENSE).
+[![Star History Chart](https://api.star-history.com/svg?repos=NVlabs/RADIO&type=Date)](https://star-history.com/#NVlabs/RADIO&Date)
 
-## ~Deprecated: HuggingFace Hub~
-
-Pull the RADIO model from a Python script:
-
-```Python
-from transformers import AutoModel
-model = AutoModel.from_pretrained("nvidia/RADIO", trust_remote_code=True)
-```
-
-Pull the E-RADIO model from a Python script:
-
-```Python
-from transformers import AutoModel
-model = AutoModel.from_pretrained("nvidia/E-RADIO", trust_remote_code=True)
-```
 
 ## Citing RADIO
 
@@ -144,3 +153,9 @@ If you find this repository useful, please consider giving a star and citation:
       primaryClass={cs.CV}
 }
 ```
+
+## Licenses
+
+Copyright © 2024, NVIDIA Corporation. All rights reserved.
+
+This work is made available under the NVIDIA Source Code License-NC. Click [here](LICENSE) to view a copy of this license.
