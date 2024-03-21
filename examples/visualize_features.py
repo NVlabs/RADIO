@@ -106,6 +106,10 @@ def main(rank: int = 0, world_size: int = 1):
     if args.resolution is None:
         args.resolution = (model.preferred_resolution.height, model.preferred_resolution.width)
 
+    # if len(args.resolution) == 1:
+    #     args.batch_size = 1
+    args.batch_size = 1
+
     patch_size = getattr(model, 'patch_size', None) or args.patch_size
 
     if args.resize_multiple is None:
