@@ -103,6 +103,28 @@ class SAMWrapper(nn.Module):
         return summary, features
 
 
+class InternViTWrapper(nn.Module):
+    def __init__(self, model: nn.Module):
+        super().__init__()
+        self.inner = model
+
+    @property
+    def embed_dim(self):
+        return 3200
+
+    @property
+    def patch_size(self):
+        return self.inner.embeddings.patch_size
+
+    def forward(self, x: torch.Tensor, **kwargs) -> Tuple[torch.Tensor, torch.Tensor]:
+        y = self.inner(x).last_hidden_state.float()
+
+        summary = y[:, 0]
+        features = y[:, 1:]
+
+        return summary, features
+
+
 @dataclass
 class ModelInfo:
     model_class: str
@@ -170,6 +192,25 @@ def load_model(version: str, adaptor_names: str = None, use_huggingface: bool = 
         img_encoder = model.image_encoder
         model = SAMWrapper(img_encoder)
         info = ModelInfo(model_class='SAM', model_subtype=model_name)
+    elif version.startswith('InternViT'):
+        from transformers import AutoModel, CLIPImageProcessor
+
+        model = AutoModel.from_pretrained(
+            f'OpenGVLab/{version}',
+            torch_dtype=torch.bfloat16,
+            trust_remote_code=True)
+
+        preprocessor = CLIPImageProcessor.from_pretrained(f'OpenGVLab/{version}')
+
+        from radio.input_conditioner import InputConditioner
+        preprocessor = InputConditioner(1.0,
+            norm_mean=preprocessor.image_mean,
+            norm_std=preprocessor.image_std,
+            dtype=torch.bfloat16,
+        )
+
+        model = InternViTWrapper(model)
+        info = ModelInfo(model_class='InternViT', model_subtype=version[10:])
     else:
         raise ValueError(f'Unsupported model version: {version}')
 
