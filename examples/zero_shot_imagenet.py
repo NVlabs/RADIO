@@ -115,7 +115,7 @@ def main(rank: int = 0, world_size: int = 1):
     adaptor = model.adaptors[args.adaptor_name] if hasattr(model, 'adaptors') else model
     classifier = get_clip_classifier(
         model=adaptor, tokenizer=adaptor.tokenizer, model_key=args.model_version, device=device,
-    )
+    ).float()
     rank_print('Done')
 
     rank_print('Classifying...')

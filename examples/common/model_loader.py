@@ -19,6 +19,10 @@ class DinoWrapper(nn.Module):
     def patch_size(self):
         return self.inner.patch_size
 
+    @property
+    def vision_encoder(self):
+        return self.inner
+
     def forward(self, *args, **kwargs):
         parts = self.inner.forward_features(*args, **kwargs)
 
@@ -46,6 +50,10 @@ class CLIPWrapper(nn.Module):
     def patch_size(self):
         return self.inner.visual.patch_size[0]
 
+    @property
+    def vision_encoder(self):
+        return self.inner.visual
+
     def forward(self, *args, **kwargs):
         enc = self.inner.visual(*args, **kwargs)
 
@@ -54,6 +62,9 @@ class CLIPWrapper(nn.Module):
         else:
             token, features = enc, None
 
+        return self._wrap_output(token, features)
+
+    def _wrap_output(self, token, features):
         op = RadioOutput(token, features)
 
         if self.adaptor_name:
@@ -75,6 +86,13 @@ class CLIPWrapper(nn.Module):
         return self.inner.encode_text(text, normalize=normalize)
 
 
+class SigLIPWrapper(CLIPWrapper):
+    def forward(self, *args, **kwargs):
+        features = self.inner.visual.trunk.forward_features(*args, **kwargs)
+        token = self.inner.visual.trunk.attn_pool(features)
+        return self._wrap_output(token, features)
+
+
 class SAMWrapper(nn.Module):
     def __init__(self, sam_encoder: nn.Module):
         super().__init__()
@@ -87,6 +105,10 @@ class SAMWrapper(nn.Module):
     @property
     def patch_size(self):
         return self.inner.patch_embed.proj.kernel_size[0]
+
+    @property
+    def vision_encoder(self):
+        return self.inner
 
     def forward(self, x: torch.Tensor, **kwargs) -> Tuple[torch.Tensor, torch.Tensor]:
         x = self.inner.patch_embed(x)
@@ -104,9 +126,15 @@ class SAMWrapper(nn.Module):
 
 
 class InternViTWrapper(nn.Module):
-    def __init__(self, model: nn.Module):
+    def __init__(self, model: nn.Module, tokenizer):
         super().__init__()
         self.inner = model
+
+        if tokenizer is not None:
+            self.tokenizer = lambda texts: tokenizer(texts, return_tensors='pt', max_length=80,
+                                                     truncation=True, padding='max_length').input_ids
+        else:
+            self.tokenizer = None
 
     @property
     def embed_dim(self):
@@ -116,13 +144,40 @@ class InternViTWrapper(nn.Module):
     def patch_size(self):
         return self.inner.embeddings.patch_size
 
+    @property
+    def vision_encoder(self):
+        return self.inner
+
     def forward(self, x: torch.Tensor, **kwargs) -> Tuple[torch.Tensor, torch.Tensor]:
-        y = self.inner(x).last_hidden_state.float()
+        if self.tokenizer is not None:
+            y = self.inner.encode_image(x, mode='InternVL-C')
+            ret = RadioOutput(y.float(), None)
+            return dict(backbone=ret, clip=ret)
+
+        z = self.inner(x)
+        y = z.last_hidden_state.float()
 
         summary = y[:, 0]
         features = y[:, 1:]
 
-        return summary, features
+        return RadioOutput(summary, features)
+
+    def encode_image(self, image, normalize: bool = False):
+        token, _ = self(image)
+        token = self.inner.clip_projector(token)
+
+        if normalize:
+            token = F.normalize(token, dim=-1)
+
+        return token
+
+    def encode_text(self, text, normalize: bool = False):
+        token = self.inner.encode_text(text)
+
+        if normalize:
+            token = F.normalize(token, dim=-1)
+
+        return token
 
 
 @dataclass
@@ -135,7 +190,7 @@ def load_model(version: str, adaptor_names: str = None, use_huggingface: bool = 
                device: torch.device = None, return_spatial_features: bool = True, **kwargs):
     kwargs = {k: v for k, v in kwargs.items() if v is not None}
 
-    if os.path.isfile(version) or version.startswith('radio'):
+    if os.path.isfile(version) or 'radio' in version:
         if use_huggingface:
             from transformers import AutoModel
             model: nn.Module = AutoModel.from_pretrained(f"nvidia/{version}", trust_remote_code=True, **kwargs)
@@ -171,7 +226,11 @@ def load_model(version: str, adaptor_names: str = None, use_huggingface: bool = 
 
         tokenizer = open_clip.get_tokenizer(model_arch)
 
-        model = CLIPWrapper(model, tokenizer, adaptor_names, clip_mode='clip' in adaptor_names if adaptor_names else False)
+        factory = CLIPWrapper
+        if model_arch == 'ViT-SO400M-14-SigLIP-384':
+            factory = SigLIPWrapper
+
+        model = factory(model, tokenizer, adaptor_names, clip_mode='clip' in adaptor_names if adaptor_names else False)
         info = ModelInfo(model_class='open_clip', model_subtype=pretrained)
     elif version.startswith('sam'):
         from segment_anything.build_sam import sam_model_registry, ImageEncoderViT, Sam
@@ -192,15 +251,22 @@ def load_model(version: str, adaptor_names: str = None, use_huggingface: bool = 
         img_encoder = model.image_encoder
         model = SAMWrapper(img_encoder)
         info = ModelInfo(model_class='SAM', model_subtype=model_name)
-    elif version.startswith('InternViT'):
-        from transformers import AutoModel, CLIPImageProcessor
+    elif version.startswith('InternV'):
+        from transformers import AutoModel, AutoConfig, CLIPImageProcessor, AutoTokenizer
 
+        hfhub_name = f'OpenGVLab/{version}'
         model = AutoModel.from_pretrained(
-            f'OpenGVLab/{version}',
+            hfhub_name,
             torch_dtype=torch.bfloat16,
             trust_remote_code=True)
 
-        preprocessor = CLIPImageProcessor.from_pretrained(f'OpenGVLab/{version}')
+        if version.startswith('InternVL'):
+            tokenizer = AutoTokenizer.from_pretrained(hfhub_name, use_fast=False, add_eos_token=True, trust_remote_code=True)
+            tokenizer.pad_token_id = 0
+        else:
+            tokenizer = None
+
+        preprocessor = CLIPImageProcessor.from_pretrained(hfhub_name)
 
         from radio.input_conditioner import InputConditioner
         preprocessor = InputConditioner(1.0,
@@ -209,7 +275,7 @@ def load_model(version: str, adaptor_names: str = None, use_huggingface: bool = 
             dtype=torch.bfloat16,
         )
 
-        model = InternViTWrapper(model)
+        model = InternViTWrapper(model, tokenizer)
         info = ModelInfo(model_class='InternViT', model_subtype=version[10:])
     else:
         raise ValueError(f'Unsupported model version: {version}')
