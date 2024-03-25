@@ -60,7 +60,7 @@ def main(rank: int = 0, world_size: int = 1):
 
         print(f'Calculating throughput...')
         model.cuda().eval()
-        # preproc.cuda().eval()
+        preproc.cuda().eval()
         buff = torch.empty(batch_size, 3, resolution, resolution, dtype=torch.float32, device='cuda')
         pt_buff = preproc(buff)
         throughput = 0
