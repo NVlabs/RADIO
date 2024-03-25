@@ -165,9 +165,12 @@ def main(rank: int = 0, world_size: int = 1):
                 else:
                     all_feat = [output[1]]
 
-
-            num_rows = images.shape[-2] // patch_size
-            num_cols = images.shape[-1] // patch_size
+            if images.shape[-2] != images.shape[-1]:
+                num_rows = images.shape[-2] // patch_size
+                num_cols = images.shape[-1] // patch_size
+            else:
+                num_rows = int(round(math.sqrt(all_feat[0].shape[1])))
+                num_cols = num_rows
 
             # m b h w c
             all_feat = [
