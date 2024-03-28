@@ -86,7 +86,8 @@ def main(rank: int = 0, world_size: int = 1):
     args, _ = parser.parse_known_args()
 
     rank_print('Loading model...')
-    model, preprocessor, info = load_model(args.model_version, vitdet_window_size=args.vitdet_window_size, adaptor_names=args.adaptor_name)
+    model, preprocessor, info = load_model(args.model_version, vitdet_window_size=args.vitdet_window_size,
+                                           adaptor_names=args.adaptor_name, force_reload=args.force_reload)
     model.to(device=device).eval()
     rank_print('Done')
 

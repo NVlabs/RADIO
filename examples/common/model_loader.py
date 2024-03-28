@@ -187,7 +187,7 @@ class ModelInfo:
 
 
 def load_model(version: str, adaptor_names: str = None, use_huggingface: bool = False, use_local_lib: bool = True,
-               device: torch.device = None, return_spatial_features: bool = True, **kwargs):
+               device: torch.device = None, return_spatial_features: bool = True, force_reload: bool = False, **kwargs):
     kwargs = {k: v for k, v in kwargs.items() if v is not None}
 
     if os.path.isfile(version) or 'radio' in version:
@@ -200,13 +200,13 @@ def load_model(version: str, adaptor_names: str = None, use_huggingface: bool = 
         else:
             model: nn.Module = torch.hub.load('NVlabs/RADIO', 'radio_model', version=version, progress=True,
                                               adaptor_names=adaptor_names, return_spatial_features=return_spatial_features,
-                                              **kwargs,
+                                              force_reload=force_reload, **kwargs,
             )
 
         preprocessor = model.make_preprocessor_external()
         info = ModelInfo(model_class='RADIO', model_subtype=version.replace('/', '_'))
     elif version.startswith('dinov2'):
-        model = torch.hub.load('facebookresearch/dinov2', version, pretrained=True, **kwargs)
+        model = torch.hub.load('facebookresearch/dinov2', version, pretrained=True, force_reload=force_reload, **kwargs)
         model = DinoWrapper(model)
 
         from radio.input_conditioner import InputConditioner
