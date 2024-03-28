@@ -66,13 +66,22 @@ class ResizeTransform(transforms.Transform):
 
 
 class PadToSquare(transforms.Transform):
+    def __init__(self, pad_mean = None):
+        super().__init__()
+        if torch.is_tensor(pad_mean):
+            pad_mean = pad_mean.flatten().tolist()
+        elif pad_mean is None:
+            pad_mean = 0
+
+        self.pad_mean = pad_mean
+
     def _get_params(self, flat_inputs: List[Any]) -> Dict[str, Any]:
         height, width = transforms._utils.query_size(flat_inputs)
 
         max_sz = max(height, width)
 
-        pad_h = max(0, height - max_sz)
-        pad_w = max(0, width - max_sz)
+        pad_h = max(0, max_sz - height)
+        pad_w = max(0, max_sz - width)
 
         top = pad_h // 2
         left = pad_w // 2
@@ -84,21 +93,20 @@ class PadToSquare(transforms.Transform):
     def _transform(self, inpt: Any, params: Dict[str, Any]) -> Any:
         size = params['size']
 
-        return transforms.functional.pad(inpt, size, fill=0)
+        ret = transforms.functional.pad(inpt, size, fill=self.pad_mean)
+        return ret
 
 
 
-def get_standard_transform(resolution: List[int], resize_multiple: int, preprocessor = None, max_dim: bool = False):
+def get_standard_transform(resolution: List[int], resize_multiple: int, preprocessor = None, max_dim: bool = False, pad_mean = None):
     transform = [
         ResizeTransform(resolution, resize_multiple, max_dim=max_dim),
-    ]
-    if len(resolution) == 2:
-        transform.append(PadToSquare())
-        transform.append(transforms.CenterCrop(resolution))
-    transform.extend([
         transforms.ToImage(),
         transforms.ToDtype(torch.float32, scale=True),
-    ])
+    ]
+    if len(resolution) == 2:
+        transform.append(PadToSquare(pad_mean))
+        transform.append(transforms.CenterCrop(resolution))
 
     if preprocessor is not None:
         transform.append(preprocessor)

@@ -5,6 +5,7 @@
 # and any modifications thereto.  Any use, reproduction, disclosure or
 # distribution of this software and related documentation without an express
 # license agreement from NVIDIA CORPORATION is strictly prohibited.
+import os
 import time
 from tqdm import tqdm
 
@@ -14,17 +15,26 @@ import torch
 from common import load_model
 
 MODELS = [
-    ('OpenAI CLIP', 'open_clip,ViT-L-14-336,openai', 336, 16),
-    ('OpenCLIP', 'open_clip,ViT-H-14,laion2b_s32b_b79k', 224, 16),
-    ('DFN CLIP', 'open_clip,ViT-H-14-378-quickgelu,dfn5b', 378, 16),
-    ('SigLIP', 'open_clip,ViT-SO400M-14-SigLIP-384,webli', 384, 16),
-    ('MetaCLIP', 'open_clip,ViT-H-14-quickgelu,metaclip_fullcc', 224, 16),
+    ('OpenAI CLIP', 'open_clip,ViT-L-14-336,openai', 336, 16, None),
+    ('OpenCLIP', 'open_clip,ViT-H-14,laion2b_s32b_b79k', 224, 16, None),
+    ('DFN CLIP', 'open_clip,ViT-H-14-378-quickgelu,dfn5b', 378, 16, None),
+    ('SigLIP', 'open_clip,ViT-SO400M-14-SigLIP-384,webli', 384, 16, None),
+    ('MetaCLIP', 'open_clip,ViT-H-14-quickgelu,metaclip_fullcc', 224, 16, None),
 
-    ('DINOv2-g-reg', 'dinov2_vitg14', 224, 16),
+    ('DINOv2-g-reg', 'dinov2_vitg14', 224, 16, None),
 
-    ('SAM-H', 'sam,/lustre/fsw/portfolios/llmservice/projects/llmservice_nlp_fm/model_zoo/sam/sam_vit_h_4b8939.pth', 1024, 4),
+    ('SAM-B', 'sam,/lustre/fsw/portfolios/llmservice/projects/llmservice_nlp_fm/model_zoo/sam/sam_vit_b_01ec64.pth', 1024, 4, None),
+    ('SAM-L', 'sam,/lustre/fsw/portfolios/llmservice/projects/llmservice_nlp_fm/model_zoo/sam/sam_vit_l_0b3195.pth', 1024, 4, None),
+    ('SAM-H', 'sam,/lustre/fsw/portfolios/llmservice/projects/llmservice_nlp_fm/model_zoo/sam/sam_vit_h_4b8939.pth', 1024, 4, None),
 
-    ('RADIO', 'radio_v2.1', 432, 16),
+    ('RADIO-432', 'radio_v2.1', 432, 16, None),
+    ('RADIO-1024', 'radio_v2.1', 1024, 4, None),
+    ('RADIO-1024-W8', 'radio_v2.1', 1024, 4, dict(vitdet_window_size=8)),
+    ('RADIO-1024-W16', 'radio_v2.1', 1024, 4, dict(vitdet_window_size=16)),
+
+    ('E-RADIO-432', 'e-radio_v2', 432, 16, None),
+    ('E-RADIO-512', 'e-radio_v2', 512, 16, None),
+    ('E-RADIO-1024', 'e-radio_v2', 1024, 16, None),
 
     ('InternViT-6b-224', 'InternViT-6B-224px', 224, 8),
     ('InternViT-6B-448-1.2', 'InternViT-6B-448px-V1-2', 448, 8),
@@ -42,15 +52,17 @@ class xyz_model(torch.nn.Module):
 @torch.inference_mode()
 def main(rank: int = 0, world_size: int = 1):
     prms = []
-    for name, version, resolution, batch_size in MODELS:
+    for name, version, resolution, batch_size, model_args in MODELS:
         print(f'Loading "{name}"...')
-        model, preproc, _ = load_model(version)
+        model_args = model_args or dict()
+        model, preproc, _ = load_model(version, **model_args)
         if hasattr(model, 'vision_encoder'):
             model = model.vision_encoder
         print(f'Done')
 
-        if version.startswith('dinov2'):
-            model = xyz_model(model)
+        # if version.startswith('dinov2'):
+        #     model = xyz_model(model)
+        model = xyz_model(model)
 
         num_params = sum(p.numel() for p in model.parameters() if p is not None and p.requires_grad)
 
@@ -61,6 +73,10 @@ def main(rank: int = 0, world_size: int = 1):
         print(f'Calculating throughput...')
         model.cuda().eval()
         preproc.cuda().eval()
+
+        if hasattr(model, 'switch_to_deploy'):
+            model.switch_to_deploy()
+
         buff = torch.empty(batch_size, 3, resolution, resolution, dtype=torch.float32, device='cuda')
         pt_buff = preproc(buff)
         throughput = 0
@@ -88,10 +104,10 @@ def main(rank: int = 0, world_size: int = 1):
         #     input_names=['input'],
         #     output_names=['output'],
         #     export_params=True,
-        #     opset_version=19,
+        #     opset_version=17,
         # )
         # os.system(f'trtexec --onnx={onnx_file_path} --fp16 --allowGPUFallback --workspace=300000000')
-        # print('\n\n\n\n\n')
+        print('\n\n\n\n\n')
 
         prms.append((name, num_params_m, throughput))
 

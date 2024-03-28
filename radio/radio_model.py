@@ -17,6 +17,7 @@ from .input_conditioner import InputConditioner
 # Register extra models
 from . import extra_timm_models
 from .adaptors import AdaptorBase, RadioOutput, AdaptorInput
+from . import eradio_model
 
 
 class Resolution(NamedTuple):
@@ -99,15 +100,16 @@ class RADIOModel(nn.Module):
 
         return Resolution(height=height, width=width)
 
+    def switch_to_deploy(self):
+        fn = getattr(self.model, 'switch_to_deploy', None)
+        if fn is not None:
+            fn()
+
     def forward(self, x: torch.Tensor) -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
         x = self.input_conditioner(x)
-
         y = self.model.forward_features(x)
 
-        if isinstance(y, (list, tuple)):
-            all_summary, all_feat = y
-            bb_summary = all_summary
-        elif isinstance(self.model, VisionTransformer):
+        if isinstance(self.model, VisionTransformer):
             patch_gen = getattr(self.model, "patch_generator", None)
             if patch_gen is not None:
                 all_summary = y[:, : patch_gen.num_cls_tokens]
@@ -124,6 +126,14 @@ class RADIOModel(nn.Module):
                 all_summary = y[:, 0]
                 bb_summary = all_summary
                 all_feat = y[:, 1:]
+        elif isinstance(self.model, eradio_model.FasterViT):
+            _, f = y
+            all_feat = f.flatten(2).transpose(1, 2)
+            all_summary = all_feat.mean(dim=1)
+            bb_summary = all_summary
+        elif isinstance(y, (list, tuple)):
+            all_summary, all_feat = y
+            bb_summary = all_summary
         else:
             raise ValueError("Unsupported model type")
 
@@ -132,7 +142,10 @@ class RADIOModel(nn.Module):
         if self.adaptors:
             ret = dict(backbone=ret)
             for name, adaptor in self.adaptors.items():
-                summary = all_summary[:, adaptor.head_idx]
+                if all_summary.ndim == 3:
+                    summary = all_summary[:, adaptor.head_idx]
+                else:
+                    summary = all_summary
                 ada_input = AdaptorInput(images=x, summary=summary.float(), features=all_feat)
                 v = adaptor(ada_input).to(torch.float32)
                 ret[name] = v

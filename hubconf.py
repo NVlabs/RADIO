@@ -33,17 +33,25 @@ class RadioResource:
 
 
 resource_map = {
-    "radio_v1": RadioResource("https://huggingface.co/nvidia/RADIO/resolve/main/radio_v1.pth.tar?download=true",
-                              patch_size=14, max_resolution=1050,
-                              preferred_resolution=Resolution(378, 378),
+    # RADIO
+    "radio_v2.1": RadioResource("https://huggingface.co/nvidia/RADIO/resolve/main/radio_v2.1_bf16.pth.tar?download=true",
+                                patch_size=16, max_resolution=2048,
+                                preferred_resolution=Resolution(432, 432),
     ),
     "radio_v2": RadioResource("https://huggingface.co/nvidia/RADIO/resolve/main/radio_v2.pth.tar?download=true",
                               patch_size=16, max_resolution=2048,
                               preferred_resolution=Resolution(432, 432),
     ),
-    "radio_v2.1": RadioResource("https://huggingface.co/nvidia/RADIO/resolve/main/radio_v2.1_bf16.pth.tar?download=true",
+    "radio_v1": RadioResource("https://huggingface.co/nvidia/RADIO/resolve/main/radio_v1.pth.tar?download=true",
+                              patch_size=14, max_resolution=1050,
+                              preferred_resolution=Resolution(378, 378),
+    ),
+
+
+    # E-RADIO
+    "e-radio_v2": RadioResource("https://huggingface.co/nvidia/RADIO/resolve/main/eradio_v2.pth.tar?download=true",
                                 patch_size=16, max_resolution=2048,
-                                preferred_resolution=Resolution(432, 432),
+                                preferred_resolution=Resolution(512, 512),
     ),
 }
 
