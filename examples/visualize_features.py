@@ -32,6 +32,7 @@ from datasets import load_dataset_builder, load_dataset
 from datasets.distributed import split_dataset_by_node
 
 from common import rank_print, load_model, get_standard_transform, collate
+from radio.input_conditioner import InputConditioner
 
 try:
     import wandb
@@ -115,7 +116,8 @@ def main(rank: int = 0, world_size: int = 1):
     if args.resize_multiple is None:
         args.resize_multiple = getattr(model, 'min_resolution_step', patch_size)
 
-    transform = get_standard_transform(args.resolution, args.resize_multiple, max_dim=args.max_dim)
+    transform = get_standard_transform(args.resolution, args.resize_multiple, max_dim=args.max_dim,
+                                       pad_mean=preprocessor.norm_mean if isinstance(preprocessor, InputConditioner) else None,)
 
     if not os.path.isdir(args.dataset):
         ds_builder = load_dataset_builder(args.dataset, trust_remote_code=True)

@@ -127,10 +127,10 @@ class RADIOModel(nn.Module):
                 bb_summary = all_summary
                 all_feat = y[:, 1:]
         elif isinstance(self.model, eradio_model.FasterViT):
-            s, f = y
-            all_summary = self.model.avgpool(s).flatten(1)
-            bb_summary = all_summary
+            _, f = y
             all_feat = f.flatten(2).transpose(1, 2)
+            all_summary = all_feat.mean(dim=1)
+            bb_summary = all_summary
         elif isinstance(y, (list, tuple)):
             all_summary, all_feat = y
             bb_summary = all_summary
@@ -142,7 +142,10 @@ class RADIOModel(nn.Module):
         if self.adaptors:
             ret = dict(backbone=ret)
             for name, adaptor in self.adaptors.items():
-                summary = all_summary[:, adaptor.head_idx]
+                if all_summary.ndim == 3:
+                    summary = all_summary[:, adaptor.head_idx]
+                else:
+                    summary = all_summary
                 ada_input = AdaptorInput(images=x, summary=summary.float(), features=all_feat)
                 v = adaptor(ada_input).to(torch.float32)
                 ret[name] = v
