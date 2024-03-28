@@ -49,9 +49,9 @@ resource_map = {
 
 
     # E-RADIO
-    "eradio_v2": RadioResource("https://huggingface.co/nvidia/RADIO/resolve/main/eradio_v2.pth.tar?download=true",
-                               patch_size=16, max_resolution=2048,
-                               preferred_resolution=Resolution(512, 512),
+    "e-radio_v2": RadioResource("https://huggingface.co/nvidia/RADIO/resolve/main/eradio_v2.pth.tar?download=true",
+                                patch_size=16, max_resolution=2048,
+                                preferred_resolution=Resolution(512, 512),
     ),
 }
 

@@ -32,9 +32,9 @@ MODELS = [
     ('RADIO-1024-W8', 'radio_v2.1', 1024, 4, dict(vitdet_window_size=8)),
     ('RADIO-1024-W16', 'radio_v2.1', 1024, 4, dict(vitdet_window_size=16)),
 
-    ('E-RADIO-432', '/lustre/fs6/portfolios/llmservice/users/mranzinger/output/evfm/eradio/n8_3-25-24_eradio_stage3-alt_s2ep77/checkpoints/eradio_v2.pth.tar', 432, 16, None),
-    ('E-RADIO-512', '/lustre/fs6/portfolios/llmservice/users/mranzinger/output/evfm/eradio/n8_3-25-24_eradio_stage3-alt_s2ep77/checkpoints/eradio_v2.pth.tar', 512, 16, None),
-    ('E-RADIO-1024', '/lustre/fs6/portfolios/llmservice/users/mranzinger/output/evfm/eradio/n8_3-25-24_eradio_stage3-alt_s2ep77/checkpoints/eradio_v2.pth.tar', 1024, 16, None),
+    ('E-RADIO-432', 'e-radio_v2', 432, 16, None),
+    ('E-RADIO-512', 'e-radio_v2', 512, 16, None),
+    ('E-RADIO-1024', 'e-radio_v2', 1024, 16, None),
 
     ('InternViT-6b-224', 'InternViT-6B-224px', 224, 8),
     ('InternViT-6B-448-1.2', 'InternViT-6B-448px-V1-2', 448, 8),
