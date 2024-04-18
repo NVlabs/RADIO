@@ -43,12 +43,14 @@ def radio_model(
             resource.url, progress=progress, map_location="cpu"
         )
 
-    mod = create_model_from_args(chk["args"])
-
     if "state_dict_ema" in chk:
         state_dict = chk["state_dict_ema"]
+        chk['args'].spectral_reparam = False
     else:
         state_dict = chk["state_dict"]
+
+    mod = create_model_from_args(chk["args"])
+
     state_dict = clean_state_dict(state_dict)
 
     key_warn = mod.load_state_dict(get_prefix_state_dict(state_dict, "base_model."), strict=False)
@@ -86,15 +88,21 @@ def radio_model(
 
         ttype = tconf["type"]
 
-        pf_head = f'_heads.{tidx}'
-        pf_feat = f'_feature_projections.{tidx}'
+        pf_idx_head = f'_heads.{tidx}'
+        pf_name_head = f'_heads.{adaptor_name}'
+        pf_idx_feat = f'_feature_projections.{tidx}'
+        pf_name_feat = f'_feature_projections.{adaptor_name}'
 
         adaptor_state = dict()
         for k, v in state_dict.items():
-            if k.startswith(pf_head):
-                adaptor_state['summary' + k[len(pf_head):]] = v
-            elif k.startswith(pf_feat):
-                adaptor_state['feature' + k[len(pf_feat):]] = v
+            if k.startswith(pf_idx_head):
+                adaptor_state['summary' + k[len(pf_idx_head):]] = v
+            elif k.startswith(pf_name_head):
+                adaptor_state['summary' + k[len(pf_name_head):]] = v
+            elif k.startswith(pf_idx_feat):
+                adaptor_state['feature' + k[len(pf_idx_feat):]] = v
+            elif k.startswith(pf_name_feat):
+                adaptor_state['feature' + k[len(pf_name_feat):]] = v
 
         adaptor = adaptor_registry.create_adaptor(ttype, chk["args"], tconf, adaptor_state)
         adaptor.head_idx = tidx

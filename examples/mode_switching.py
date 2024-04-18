@@ -58,6 +58,7 @@ def main(rank: int = 0, world_size: int = 1):
 
     device = torch.device('cuda', local_rank)
     parser = argparse.ArgumentParser(description='Compute SSL embedding rank estimates')
+    parser.add_argument('-v', '--version', default='radio_v2.1')
     parser.add_argument('-d', '--dataset', default='imagenet-1k',
                         help='The name of the dataset to classify'
     )
@@ -73,8 +74,8 @@ def main(rank: int = 0, world_size: int = 1):
     random.seed(42 + rank)
 
     rank_print('Loading RADIO...')
-    radio, radio_preprocessor, _ = load_model('radio_v2.1', adaptor_names='dino_v2')
-    radio_vitdet, _, _ = load_model('radio_v2.1', vitdet_window_size=16, adaptor_names='dino_v2')
+    radio, radio_preprocessor, _ = load_model(args.version, adaptor_names='dino_v2')
+    # radio_vitdet, _, _ = load_model('radio_v2.1', vitdet_window_size=16, adaptor_names='dino_v2')
     rank_print('Done')
 
     rank_print('Loading DINOv2...')
@@ -83,7 +84,7 @@ def main(rank: int = 0, world_size: int = 1):
 
     radio.cuda().eval()
     radio_preprocessor.cuda().eval()
-    radio_vitdet.cuda().eval()
+    # radio_vitdet.cuda().eval()
     dinov2.cuda().eval()
     dinov2_preprocessor.cuda().eval()
 

@@ -56,7 +56,7 @@ def main(rank: int = 0, world_size: int = 1):
     parser.add_argument('--split', default='validation',
                         help='The dataset split to use.'
     )
-    parser.add_argument('--resize-multiple', type=int, default=None,
+    parser.add_argument('--resize-multiple', type=int, default=16,
                         help='Resize images with dimensions a multiple of this value.'
                              ' This should be equal to the patch size of a ViT (e.g. RADIOv1)'
     )
@@ -139,7 +139,7 @@ def main(rank: int = 0, world_size: int = 1):
                     summary = output[args.adaptor_name].summary
                     summary = F.normalize(summary, dim=-1)
 
-                    logits = summary @ classifier
+                    logits = summary.to(classifier.dtype) @ classifier
 
                     accs = accuracy(logits, targets, topk=topks.keys())
                     for k, acc in zip(topks.keys(), accs):
