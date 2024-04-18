@@ -148,6 +148,18 @@ _Coming Soon_
 ## Citing RADIO
 
 If you find this repository useful, please consider giving a star and citation:
+
+#### CVPR 2024 Reference:
+```bibtex
+@inProceedings{ranzinger2023amradio,
+  title={AM-RADIO: Agglomerative Visual Foundation Model -- Reduce All Domains Into One},
+  author={Mike Ranzinger and Greg Heinrich and Jan Kautz and Pavlo Molchanov},
+  booktitle={CVPR},
+  year={2024},
+}
+```
+
+#### ArXiv Reference:
 ```bibtex
 @misc{ranzinger2023amradio,
       title={AM-RADIO: Agglomerative Model -- Reduce All Domains Into One},
