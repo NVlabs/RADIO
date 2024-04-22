@@ -18,7 +18,7 @@ from timm.models import clean_state_dict
 import torch
 
 from hubconf import get_prefix_state_dict
-from radio.hf_model import ERADIOConfig, ERADIOModel, RADIOConfig, RADIOModel
+from radio.hf_model import RADIOConfig, RADIOModel
 
 
 hugginface_repo_mapping = {"RADIO": "nvidia/RADIO", "E-RADIO": "nvidia/E-RADIO"}
@@ -27,11 +27,17 @@ hugginface_repo_mapping = {"RADIO": "nvidia/RADIO", "E-RADIO": "nvidia/E-RADIO"}
 def main():
     """Main Routine.
 
-    Push a RADIO model to Hugging.
+    Construct and optionall push a RADIO model to Hugging.
 
     Usage:
 
-    python3 -m hf_hub --model RADIO --checkpoint-path /path/to/checkpoint.pth.tar
+    python3 -m hf_hub --model <model-name> --checkpoint-path <checkpoint-path> [--push]
+
+    Examples:
+
+    python3 -m hf_hub --model RADIO --checkpoint-path radio_v2.1_bf16.pth.tar --version radio_v2.1 --push
+    python3 -m hf_hub --model E-RADIO --checkpoint-path eradio_v2.pth.tar --version e-radio_v2
+
     """
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -40,11 +46,13 @@ def main():
     parser.add_argument(
         "--model", help="RADIO model type", required=True, choices=["RADIO", "E-RADIO"]
     )
+    parser.add_argument("--version", help="(E-)RADIO model version", required=True)
     parser.add_argument(
         "--huggingface-repo-branch",
         help="HuggingFace repository branch to push to",
         default="main",
     )
+    parser.add_argument("--push", help="Push the model to HuggingFace", action="store_true")
     args = parser.parse_args()
 
     # Load the checkpoint and create the model.
@@ -52,48 +60,27 @@ def main():
     model_args = checkpoint["args"]
 
     # Extract the state dict from the checkpoint.
-    state_dict = checkpoint["state_dict"]
+    if "state_dict_ema" in checkpoint:
+        state_dict = checkpoint["state_dict_ema"]
+    else:
+        state_dict = checkpoint["state_dict"]
     state_dict = clean_state_dict(state_dict)
 
-    # Remove keys in state dict whose size does not match that of the model.
-    checkpoint_state_dict = get_prefix_state_dict(state_dict, "base_model.")
+    # Tell HuggingFace API we need to push the code for the model config and definition.
+    RADIOConfig.register_for_auto_class()
+    RADIOModel.register_for_auto_class("AutoModel")
 
-    if args.model == "RADIO":
-        # Tell HuggingFace API we need to push the code for the model config and definition.
-        RADIOConfig.register_for_auto_class()
-        RADIOModel.register_for_auto_class("AutoModel")
-
-        radio_config = RADIOConfig(
-            vars(model_args), return_summary=True, return_spatial_features=True
-        )
-        radio_model = RADIOModel(radio_config)
-
-        model_state_dict = radio_model.model.state_dict()
-    elif args.model == "E-RADIO":
-        # Tell HuggingFace API we need to push the code for the model config and definition.
-        ERADIOConfig.register_for_auto_class()
-        ERADIOModel.register_for_auto_class("AutoModel")
-
-        radio_config = ERADIOConfig(
-            vars(model_args), return_summary=True, return_spatial_features=True
-        )
-        radio_model = ERADIOModel(radio_config)
-
-        model_state_dict = radio_model.model.state_dict()
-        for k, v in model_state_dict.items():
-            if k in checkpoint_state_dict:
-                if v.size() != checkpoint_state_dict[k].size():
-                    warning(
-                        f"Removing key {k} from state dict due to shape mismatch: "
-                        f"{v.size()} != {checkpoint_state_dict[k].size()}"
-                    )
-                else:
-                    model_state_dict[k] = checkpoint_state_dict[k]
-    else:
-        raise ValueError(f"Unknown model {args.model}")
+    radio_config = RADIOConfig(vars(model_args), version=args.version)
+    radio_model = RADIOModel(radio_config)
 
     # Restore the model weights.
-    radio_model.model.load_state_dict(model_state_dict, strict=False)
+    key_warn = radio_model.model.load_state_dict(
+        get_prefix_state_dict(state_dict, "base_model."), strict=False
+    )
+    if key_warn.missing_keys:
+        warning(f"Missing keys in state dict: {key_warn.missing_keys}")
+    if key_warn.unexpected_keys:
+        warning(f"Unexpected keys in state dict: {key_warn.unexpected_keys}")
 
     # Restore input conditioner.
     radio_model.input_conditioner.load_state_dict(
@@ -101,17 +88,41 @@ def main():
     )
 
     radio_model.eval().cuda()
-    x = torch.randn(1, 3, 224, 224).cuda()
-    summary, features = radio_model(x)
+
+    # Sample inference with random values.
+    x = torch.randn(
+        1,
+        3,
+        radio_model.config.preferred_resolution[0],
+        radio_model.config.preferred_resolution[1],
+    ).cuda()
+
+    # Infer using HuggingFace model.
+    hf_model_summary, hf_model_features = radio_model(x)
     print(
         f"Sample inference on tensor shape {x.shape} returned summary ",
-        f"with shape {summary.shape}, features with shape {features.shape}",
+        f"with shape={hf_model_summary.shape} and std={hf_model_summary.std().item():.3}, ",
+        f"features with shape={hf_model_features.shape} and std={hf_model_features.std().item():.3}",
     )
 
-    # Push to HuggingFace Hub.
-    huggingface_repo = hugginface_repo_mapping[args.model]
-    commit = radio_model.push_to_hub(huggingface_repo, args.huggingface_repo_branch)
-    print(f"Pushed to {commit}")
+    # Infer using TorchHub model.
+    print("Infer using TorchHub model...")
+    torchhub_model = torch.hub.load(
+        "NVlabs/RADIO", "radio_model", version=args.checkpoint_path
+    )
+    torchhub_model.cuda().eval()
+    torchhub_model_summary, torchhub_model_features = torchhub_model(x)
+
+    # Make sure the results are the same.
+    assert torch.allclose(hf_model_summary, torchhub_model_summary, atol=1e-6)
+    assert torch.allclose(hf_model_features, torchhub_model_features, atol=1e-6)
+    print("All outputs matched!")
+
+    if args.push:
+        # Push to HuggingFace Hub.
+        huggingface_repo = hugginface_repo_mapping[args.model]
+        commit = radio_model.push_to_hub(huggingface_repo, args.huggingface_repo_branch)
+        print(f"Pushed to {commit}")
 
 
 if __name__ == "__main__":

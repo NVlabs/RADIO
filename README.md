@@ -64,6 +64,30 @@ with torch.cuda.amp.autocast(dtype=torch.bfloat16):
     summary, spatial_features = model(x)
 ```
 
+### HuggingFace
+
+```python
+import torch
+from transformers import AutoModel
+
+hf_repo = "nvidia/RADIO" # For RADIO.
+# hf_repo = "nvidia/E-RADIO" # For E-RADIO.
+
+model = AutoModel.from_pretrained(hf_repo, trust_remote_code=True)
+model.eval().cuda()
+
+# Sample inference with random values.
+x = torch.randn(
+    1,
+    3,
+    model.config.preferred_resolution[0],
+    model.config.preferred_resolution[1],
+).cuda()
+
+# Infer using HuggingFace model.
+summary, features = model(x)
+```
+
 ### Usage
 
 RADIO and E-RADIO will return a tuple with two tensors.

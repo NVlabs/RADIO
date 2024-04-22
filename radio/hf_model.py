@@ -12,19 +12,21 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 from collections import namedtuple
-from typing import Optional
+from typing import Optional, List, Union
 
 from timm.models import VisionTransformer
 import torch
 from transformers import PretrainedConfig, PreTrainedModel
 
 
-from .eradio_model import eradio
+from .common import RESOURCE_MAP, DEFAULT_VERSION
 from .radio_model import create_model_from_args
-from .radio_model import RADIOModel as RADIOModelBase
+from .radio_model import RADIOModel as RADIOModelBase, Resolution
 from .input_conditioner import get_default_conditioner, InputConditioner
+
 # Register extra models
 from .extra_timm_models import *
+
 
 class RADIOConfig(PretrainedConfig):
     """Pretrained Hugging Face configuration for RADIO models."""
@@ -32,15 +34,24 @@ class RADIOConfig(PretrainedConfig):
     def __init__(
         self,
         args: Optional[dict] = None,
-        version: Optional[str] = "v1",
-        return_summary: Optional[bool] = True,
-        return_spatial_features: Optional[bool] = True,
+        version: Optional[str] = DEFAULT_VERSION,
+        patch_size: Optional[int] = None,
+        max_resolution: Optional[int] = None,
+        preferred_resolution: Optional[Resolution] = None,
+        adaptor_names: Union[str, List[str]] = None,
+        vitdet_window_size: Optional[int] = None,
         **kwargs,
     ):
         self.args = args
         self.version = version
-        self.return_summary = return_summary
-        self.return_spatial_features = return_spatial_features
+        resource = RESOURCE_MAP[version]
+        self.patch_size = patch_size or resource.patch_size
+        self.max_resolution = max_resolution or resource.max_resolution
+        self.preferred_resolution = (
+            preferred_resolution or resource.preferred_resolution
+        )
+        self.adaptor_names = adaptor_names
+        self.vitdet_window_size = vitdet_window_size
         super().__init__(**kwargs)
 
 
@@ -59,14 +70,36 @@ class RADIOModel(PreTrainedModel):
         RADIOArgs = namedtuple("RADIOArgs", config.args.keys())
         args = RADIOArgs(**config.args)
         self.config = config
+
         model = create_model_from_args(args)
         input_conditioner: InputConditioner = get_default_conditioner()
+
+        dtype = getattr(args, "dtype", torch.float32)
+        model.to(dtype=dtype)
+        input_conditioner.dtype = dtype
+
+        summary_idxs = torch.tensor(
+            [i for i, t in enumerate(args.teachers) if t.get("use_summary", True)],
+            dtype=torch.int64,
+        )
+
+        adaptor_names = config.adaptor_names
+        if adaptor_names is not None:
+            raise NotImplementedError(
+                f"Adaptors are not yet supported in Hugging Face models. Adaptor names: {adaptor_names}"
+            )
+
+        adaptors = dict()
 
         self.radio_model = RADIOModelBase(
             model,
             input_conditioner,
-            config.return_summary,
-            config.return_spatial_features,
+            summary_idxs=summary_idxs,
+            patch_size=config.patch_size,
+            max_resolution=config.max_resolution,
+            window_size=config.vitdet_window_size,
+            preferred_resolution=config.preferred_resolution,
+            adaptors=adaptors,
         )
 
     @property
@@ -79,62 +112,3 @@ class RADIOModel(PreTrainedModel):
 
     def forward(self, x: torch.Tensor):
         return self.radio_model.forward(x)
-
-
-class ERADIOConfig(PretrainedConfig):
-    """Pretrained Hugging Face configuration for ERADIO models."""
-
-    def __init__(
-        self,
-        args: Optional[dict] = None,
-        version: Optional[str] = "v1",
-        return_summary: Optional[bool] = True,
-        return_spatial_features: Optional[bool] = True,
-        **kwargs,
-    ):
-        self.args = args
-        self.version = version
-        self.return_summary = return_summary
-        self.return_spatial_features = return_spatial_features
-        super().__init__(**kwargs)
-
-
-class ERADIOModel(PreTrainedModel):
-    """Pretrained Hugging Face model for ERADIO.
-
-    This class inherits from PreTrainedModel, which provides
-    HuggingFace's functionality for loading and saving models.
-    """
-
-    config_class = ERADIOConfig
-
-    def __init__(self, config):
-        super().__init__(config)
-
-        config.args["in_chans"] = 3
-        config.args["num_classes"] = 0
-        config.args["return_full_features"] = config.return_spatial_features
-
-        self.config = config
-        model = eradio(**config.args)
-        self.input_conditioner: InputConditioner = get_default_conditioner()
-        self.return_summary = config.return_summary
-        self.return_spatial_features = config.return_spatial_features
-        self.model = model
-
-    def forward(self, x: torch.Tensor):
-        x = self.input_conditioner(x)
-        y = self.model.forward_features(x)
-        summary, features = self.model.forward_features(x)
-
-        if isinstance(y, tuple):
-            summary, features = y
-        else:
-            summary = y
-            features = None
-
-        if self.return_summary and self.return_spatial_features:
-            return summary, features
-        elif self.return_summary:
-            return summary
-        return features
