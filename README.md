@@ -73,7 +73,7 @@ from transformers import AutoModel, CLIPImageProcessor
 hf_repo = "nvidia/RADIO" # For RADIO.
 # hf_repo = "nvidia/E-RADIO" # For E-RADIO.
 
-image_processor = CLIPImageProcessor.from_pretrained(args.hf_repo)
+image_processor = CLIPImageProcessor.from_pretrained(hf_repo)
 model = AutoModel.from_pretrained(hf_repo, trust_remote_code=True)
 model.eval().cuda()
 
