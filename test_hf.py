@@ -13,7 +13,8 @@
 # limitations under the License.
 import argparse
 
-from transformers import AutoModel
+from PIL import Image
+from transformers import AutoModel, CLIPImageProcessor
 import torch
 
 
@@ -74,6 +75,21 @@ def main():
     assert torch.allclose(hf_model_features, torchhub_model_features, atol=1e-6)
 
     print("All outputs matched!")
+
+    # Infer a sample image.
+    image_processor = CLIPImageProcessor.from_pretrained(args.hf_repo)
+
+    image = Image.open("./examples/image1.png").convert("RGB")
+    pixel_values = image_processor(images=image, return_tensors="pt").pixel_values
+    pixel_values = pixel_values.to(torch.bfloat16).cuda()
+
+    hf_model_summary, hf_model_features = hf_model(pixel_values)
+    print(
+        f"Sample inference on image shape {pixel_values.shape} with "
+        f"min={pixel_values.min().item():.3} and max={pixel_values.max().item():.3} returned summary ",
+        f"with shape={hf_model_summary.shape} and std={hf_model_summary.std().item():.3}, ",
+        f"features with shape={hf_model_features.shape} and std={hf_model_features.std().item():.3}",
+    )
 
 
 if __name__ == "__main__":

@@ -67,25 +67,21 @@ with torch.cuda.amp.autocast(dtype=torch.bfloat16):
 ### HuggingFace
 
 ```python
-import torch
-from transformers import AutoModel
+from PIL import Image
+from transformers import AutoModel, CLIPImageProcessor
 
 hf_repo = "nvidia/RADIO" # For RADIO.
 # hf_repo = "nvidia/E-RADIO" # For E-RADIO.
 
+image_processor = CLIPImageProcessor.from_pretrained(args.hf_repo)
 model = AutoModel.from_pretrained(hf_repo, trust_remote_code=True)
 model.eval().cuda()
 
-# Sample inference with random values.
-x = torch.randn(
-    1,
-    3,
-    model.config.preferred_resolution[0],
-    model.config.preferred_resolution[1],
-).cuda()
+image = Image.open('./examples/image1.png').convert('RGB')
+pixel_values = image_processor(images=image, return_tensors='pt').pixel_values
+pixel_values = pixel_values.to(torch.bfloat16).cuda()
 
-# Infer using HuggingFace model.
-summary, features = model(x)
+summary, features = model(pixel_values)
 ```
 
 ### Usage
