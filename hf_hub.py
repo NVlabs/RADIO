@@ -21,9 +21,6 @@ from hubconf import get_prefix_state_dict
 from radio.hf_model import RADIOConfig, RADIOModel
 
 
-hugginface_repo_mapping = {"RADIO": "nvidia/RADIO", "E-RADIO": "nvidia/E-RADIO"}
-
-
 def main():
     """Main Routine.
 
@@ -35,17 +32,15 @@ def main():
 
     Examples:
 
-    python3 -m hf_hub --model RADIO --checkpoint-path radio_v2.1_bf16.pth.tar --version radio_v2.1 --push
-    python3 -m hf_hub --model E-RADIO --checkpoint-path eradio_v2.pth.tar --version e-radio_v2
+    python3 -m hf_hub --hf-repo nvidia/RADIO --checkpoint-path radio_v2.1_bf16.pth.tar --version radio_v2.1 --push
+    python3 -m hf_hub --hf-repo nvidia/E-RADIO --checkpoint-path eradio_v2.pth.tar --version e-radio_v2
 
     """
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--checkpoint-path", help="Path to the pretrained weights", required=True
     )
-    parser.add_argument(
-        "--model", help="RADIO model type", required=True, choices=["RADIO", "E-RADIO"]
-    )
+    parser.add_argument("--hf-repo", help="Path to the HuggingFace repo", required=True)
     parser.add_argument("--version", help="(E-)RADIO model version", required=True)
     parser.add_argument(
         "--huggingface-repo-branch",
@@ -120,7 +115,7 @@ def main():
 
     if args.push:
         # Push to HuggingFace Hub.
-        huggingface_repo = hugginface_repo_mapping[args.model]
+        huggingface_repo = args.hf_repo
         commit = radio_model.push_to_hub(huggingface_repo, args.huggingface_repo_branch)
         print(f"Pushed to {commit}")
 

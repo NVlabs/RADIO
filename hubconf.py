@@ -17,7 +17,7 @@ from torch.hub import load_state_dict_from_url
 
 from timm.models import clean_state_dict
 
-from radio.adaptors import adaptor_registry
+from radio.adaptor_registry import adaptor_registry
 from radio.common import DEFAULT_VERSION, RadioResource, RESOURCE_MAP
 from radio.radio_model import RADIOModel, create_model_from_args
 from radio.input_conditioner import get_default_conditioner

@@ -12,7 +12,7 @@ from torch import nn
 import torch.nn.functional as F
 
 from .adaptor_base import AdaptorBase, AdaptorInput, RadioOutput
-from .mlp import create_mlp_from_state
+from .adaptor_mlp import create_mlp_from_state
 
 
 class GenericAdaptor(AdaptorBase):
