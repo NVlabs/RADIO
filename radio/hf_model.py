@@ -20,9 +20,13 @@ from transformers import PretrainedConfig, PreTrainedModel
 
 
 from .common import RESOURCE_MAP, DEFAULT_VERSION
+
+# Force import of eradio_model in order to register it.
+from .eradio_model import eradio
 from .radio_model import create_model_from_args
 from .radio_model import RADIOModel as RADIOModelBase, Resolution
 from .input_conditioner import get_default_conditioner, InputConditioner
+
 
 # Register extra models
 from .extra_timm_models import *
@@ -43,6 +47,12 @@ class RADIOConfig(PretrainedConfig):
         **kwargs,
     ):
         self.args = args
+        for field in ["dtype", "amp_dtype"]:
+            if self.args is not None and field in self.args:
+                # Convert to a string in order to make it serializable.
+                # For example for torch.float32 we will store "float32",
+                # for "bfloat16" we will store "bfloat16".
+                self.args[field] = str(args[field]).split(".")[-1]
         self.version = version
         resource = RESOURCE_MAP[version]
         self.patch_size = patch_size or resource.patch_size
@@ -75,6 +85,9 @@ class RADIOModel(PreTrainedModel):
         input_conditioner: InputConditioner = get_default_conditioner()
 
         dtype = getattr(args, "dtype", torch.float32)
+        if isinstance(dtype, str):
+            # Convert the dtype's string representation back to a dtype.
+            dtype = getattr(torch, dtype)
         model.to(dtype=dtype)
         input_conditioner.dtype = dtype
 

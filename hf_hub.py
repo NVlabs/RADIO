@@ -41,13 +41,18 @@ def main():
         "--checkpoint-path", help="Path to the pretrained weights", required=True
     )
     parser.add_argument("--hf-repo", help="Path to the HuggingFace repo", required=True)
+    parser.add_argument(
+        "--torchhub-repo", help="Path to the TorchHub repo", default="NVlabs/RADIO"
+    )
     parser.add_argument("--version", help="(E-)RADIO model version", required=True)
     parser.add_argument(
         "--huggingface-repo-branch",
         help="HuggingFace repository branch to push to",
         default="main",
     )
-    parser.add_argument("--push", help="Push the model to HuggingFace", action="store_true")
+    parser.add_argument(
+        "--push", help="Push the model to HuggingFace", action="store_true"
+    )
     args = parser.parse_args()
 
     # Load the checkpoint and create the model.
@@ -103,7 +108,7 @@ def main():
     # Infer using TorchHub model.
     print("Infer using TorchHub model...")
     torchhub_model = torch.hub.load(
-        "NVlabs/RADIO", "radio_model", version=args.checkpoint_path
+        args.torchhub_repo, "radio_model", version=args.checkpoint_path
     )
     torchhub_model.cuda().eval()
     torchhub_model_summary, torchhub_model_features = torchhub_model(x)

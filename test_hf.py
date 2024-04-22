@@ -25,16 +25,20 @@ def main():
 
     Usage:
 
-    python3 -m test_hf --hf-repo <repo> --torchhub-version <version|/path/to/checkpoint.pth.tar>
+    python3 -m test_hf --hf-repo <repo> --torchhub-version <version|/path/to/checkpoint.pth.tar> [--torchhub-repo <repo>]
 
-    Example:
+    Examples:
 
     python3 -m test_hf --hf-repo nvidia/RADIO --torchhub-version ./radio_v2.1_bf16.pth.tar
+    python3 -m test_hf --hf-repo gheinrich/RADIO --torchhub-version ./radio_v2.1_bf16.pth.tar --torchhub-repo NVlabs/RADIO:dev/hf
     """
     parser = argparse.ArgumentParser()
     parser.add_argument("--hf-repo", help="Path to the HuggingFace repo", required=True)
     parser.add_argument(
         "--torchhub-version", help="Torchhub version to compare against", required=True
+    )
+    parser.add_argument(
+        "--torchhub-repo", help="Path to the Torchhub repo", default="NVlabs/RADIO"
     )
 
     args = parser.parse_args()
@@ -60,7 +64,7 @@ def main():
 
     # Infer using TorchHub model.
     torchhub_model = torch.hub.load(
-        "NVlabs/RADIO", "radio_model", version=args.torchhub_version
+        args.torchhub_repo, "radio_model", version=args.torchhub_version
     )
     torchhub_model.cuda().eval()
     torchhub_model_summary, torchhub_model_features = torchhub_model(x)
@@ -68,6 +72,8 @@ def main():
     # Make sure the results are the same.
     assert torch.allclose(hf_model_summary, torchhub_model_summary, atol=1e-6)
     assert torch.allclose(hf_model_features, torchhub_model_features, atol=1e-6)
+
+    print("All outputs matched!")
 
 
 if __name__ == "__main__":
