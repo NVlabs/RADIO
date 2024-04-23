@@ -76,12 +76,16 @@ def main(rank: int = 0, world_size: int = 1):
                         help='Force reload RADIO library'
     )
     parser.add_argument('--amp', default=False, action='store_true', help='Run in amp')
+    parser.add_argument('--torchhub-repo',
+                        help="Path to the Torchhub repo", default="NVlabs/RADIO"
+    )
 
     args, _ = parser.parse_known_args()
 
     rank_print('Loading model...')
     model, preprocessor, info = load_model(args.model_version, adaptor_names=args.adaptor_name, return_spatial_features=False,
-                                           vitdet_window_size=args.vitdet_window_size, force_reload=args.force_reload)
+                                           vitdet_window_size=args.vitdet_window_size, force_reload=args.force_reload,
+                                           torchhub_repo=args.torchhub_repo)
     model.to(device=device).eval()
     rank_print('Done')
 

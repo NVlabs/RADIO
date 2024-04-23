@@ -24,7 +24,7 @@ from radio.hf_model import RADIOConfig, RADIOModel
 def main():
     """Main Routine.
 
-    Construct and optionall push a RADIO model to Hugging.
+    Construct and optionally push a RADIO model to Hugging Face.
 
     Usage:
 
@@ -62,6 +62,8 @@ def main():
     # Extract the state dict from the checkpoint.
     if "state_dict_ema" in checkpoint:
         state_dict = checkpoint["state_dict_ema"]
+        # Disable spectral reparametrization for EMA model.
+        model_args.spectral_reparam = False
     else:
         state_dict = checkpoint["state_dict"]
     state_dict = clean_state_dict(state_dict)
