@@ -76,7 +76,7 @@ def main(rank: int = 0, world_size: int = 1):
                              ' Default: The RADIO model\'s preferred resolution.'
     )
     parser.add_argument('--max-dim', default=False, action='store_true', help='Resize the max dimension to the specified resolution')
-    parser.add_argument('--resize-multiple', type=int, default=None,
+    parser.add_argument('--resize-multiple', type=int, default=16,
                         help='Resize images with dimensions a multiple of this value.'
                              ' This should be equal to the patch size of a ViT (e.g. RADIOv1)'
     )
