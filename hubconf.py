@@ -61,6 +61,13 @@ def radio_model(
         warnings.warn(f'Unexpected keys in state dict: {key_warn.unexpected_keys}')
 
     if chk['args'].spectral_reparam:
+        # Spectral reparametrization uses PyTorch's "parametrizations" API. The idea behind
+        # the method is that instead of there being a `weight` tensor for certain Linear layers
+        # in the model, we make it a dynamically computed function. During training, this
+        # helps stabilize the model. However, for downstream use cases, it shouldn't be necessary.
+        # Disabling it in this context means that instead of having `w' = f(w)`, we just compute `w' = f(w)`
+        # once, during this function call, and replace the parametrization with the realized weights.
+        # This makes the model run faster, and also use less memory.
         disable_spectral_reparam(mod)
         chk['args'].spectral_reparam = False
 
