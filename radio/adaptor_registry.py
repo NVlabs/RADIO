@@ -10,7 +10,7 @@ from typing import Dict, Any
 
 import torch
 
-from .generic import GenericAdaptor, AdaptorBase
+from .adaptor_generic import GenericAdaptor, AdaptorBase
 
 dict_t = Dict[str, Any]
 state_t = Dict[str, torch.Tensor]

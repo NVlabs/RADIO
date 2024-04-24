@@ -8,7 +8,6 @@
 
 dependencies = ["torch", "timm", "einops"]
 
-from dataclasses import dataclass
 import os
 from typing import Dict, Any, Optional, Union, List
 import warnings
@@ -18,63 +17,28 @@ from torch.hub import load_state_dict_from_url
 
 from timm.models import clean_state_dict
 
-from radio.adaptors import adaptor_registry
-from radio.radio_model import RADIOModel, create_model_from_args, Resolution
+from radio.adaptor_registry import adaptor_registry
+from radio.common import DEFAULT_VERSION, RadioResource, RESOURCE_MAP
+from radio.radio_model import RADIOModel, create_model_from_args
 from radio.input_conditioner import get_default_conditioner
 from radio.vitdet import apply_vitdet_arch, VitDetArgs
-
-
-@dataclass
-class RadioResource:
-    url: str
-    patch_size: int
-    max_resolution: int
-    preferred_resolution: Resolution
-
-
-resource_map = {
-    # RADIO
-    "radio_v2.1": RadioResource("https://huggingface.co/nvidia/RADIO/resolve/main/radio_v2.1_bf16.pth.tar?download=true",
-                                patch_size=16, max_resolution=2048,
-                                preferred_resolution=Resolution(432, 432),
-    ),
-    "radio_v2": RadioResource("https://huggingface.co/nvidia/RADIO/resolve/main/radio_v2.pth.tar?download=true",
-                              patch_size=16, max_resolution=2048,
-                              preferred_resolution=Resolution(432, 432),
-    ),
-    "radio_v1": RadioResource("https://huggingface.co/nvidia/RADIO/resolve/main/radio_v1.pth.tar?download=true",
-                              patch_size=14, max_resolution=1050,
-                              preferred_resolution=Resolution(378, 378),
-    ),
-
-
-    # E-RADIO
-    "e-radio_v2": RadioResource("https://huggingface.co/nvidia/RADIO/resolve/main/eradio_v2.pth.tar?download=true",
-                                patch_size=16, max_resolution=2048,
-                                preferred_resolution=Resolution(512, 512),
-    ),
-}
-
-_DEFAULT_VERSION = "radio_v2.1"
 
 
 def radio_model(
     version: str = "",
     progress: bool = True,
-    return_summary: bool = True,
-    return_spatial_features: bool = True,
     adaptor_names: Union[str, List[str]] = None,
     vitdet_window_size: Optional[int] = None,
     **kwargs,
 ) -> RADIOModel:
     if not version:
-        version = _DEFAULT_VERSION
+        version = DEFAULT_VERSION
 
     if os.path.isfile(version):
         chk = torch.load(version, map_location="cpu")
         resource = RadioResource(version, patch_size=None, max_resolution=None, preferred_resolution=None)
     else:
-        resource = resource_map[version]
+        resource = RESOURCE_MAP[version]
         chk = load_state_dict_from_url(
             resource.url, progress=progress, map_location="cpu"
         )

@@ -187,7 +187,8 @@ class ModelInfo:
 
 
 def load_model(version: str, adaptor_names: str = None, use_huggingface: bool = False, use_local_lib: bool = True,
-               device: torch.device = None, return_spatial_features: bool = True, force_reload: bool = False, **kwargs):
+               device: torch.device = None, return_spatial_features: bool = True, force_reload: bool = False,
+               torchhub_repo="NVlabs/RADIO", **kwargs):
     kwargs = {k: v for k, v in kwargs.items() if v is not None}
 
     if os.path.isfile(version) or 'radio' in version:
@@ -198,7 +199,7 @@ def load_model(version: str, adaptor_names: str = None, use_huggingface: bool = 
             from hubconf import radio_model
             model = radio_model(version=version, progress=True, adaptor_names=adaptor_names, **kwargs)
         else:
-            model: nn.Module = torch.hub.load('NVlabs/RADIO', 'radio_model', version=version, progress=True,
+            model: nn.Module = torch.hub.load(torchhub_repo, 'radio_model', version=version, progress=True,
                                               adaptor_names=adaptor_names, return_spatial_features=return_spatial_features,
                                               force_reload=force_reload, **kwargs,
             )

@@ -16,7 +16,7 @@ from .enable_cpe_support import enable_cpe
 from .input_conditioner import InputConditioner
 # Register extra models
 from . import extra_timm_models
-from .adaptors import AdaptorBase, RadioOutput, AdaptorInput
+from .adaptor_base import AdaptorBase, RadioOutput, AdaptorInput
 from . import eradio_model
 
 
