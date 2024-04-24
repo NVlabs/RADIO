@@ -52,7 +52,7 @@ def main(rank: int = 0, world_size: int = 1):
     parser.add_argument('--eval-dataset', default=None, type=str,
                         help='The name of the evaluation dataset, if different than the training one.'
     )
-    parser.add_argument('--resize-multiple', type=int, default=None,
+    parser.add_argument('--resize-multiple', type=int, default=16,
                         help='Resize images with dimensions a multiple of this value.'
                         ' This should be equal to the patch size of a ViT (e.g. RADIOv1)'
     )

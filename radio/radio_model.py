@@ -18,6 +18,7 @@ from .input_conditioner import InputConditioner
 from . import extra_timm_models
 from .adaptor_base import AdaptorBase, RadioOutput, AdaptorInput
 from . import eradio_model
+from .enable_spectral_reparam import configure_spectral_reparam_from_args
 
 
 class Resolution(NamedTuple):
@@ -180,6 +181,11 @@ def create_model_from_args(args) -> nn.Module:
         **args.model_kwargs,
     )
 
+    if hasattr(model, 'norm') and not getattr(args, 'model_norm', False):
+        model.norm = nn.Identity()
+
+    model.head = nn.Identity()
+
     assert (
         not args.cls_token_per_teacher or args.cpe_max_size is not None
     ), "CPE must be enabled for multiple CLS tokens!"
@@ -191,5 +197,8 @@ def create_model_from_args(args) -> nn.Module:
             num_cls_tokens=len(args.teachers) if args.cls_token_per_teacher else 1,
             register_multiple=args.register_multiple,
         )
+
+    if args.spectral_reparam:
+        configure_spectral_reparam_from_args(model, args)
 
     return model

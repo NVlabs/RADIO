@@ -32,6 +32,7 @@ MODELS = [
     ('RADIO-1024-W8', 'radio_v2.1', 1024, 4, dict(vitdet_window_size=8)),
     ('RADIO-1024-W16', 'radio_v2.1', 1024, 4, dict(vitdet_window_size=16)),
 
+    ('E-RADIO-224', 'e-radio_v2', 224, 16, None),
     ('E-RADIO-432', 'e-radio_v2', 432, 16, None),
     ('E-RADIO-512', 'e-radio_v2', 512, 16, None),
     ('E-RADIO-1024', 'e-radio_v2', 1024, 16, None),
