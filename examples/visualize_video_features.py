@@ -77,6 +77,7 @@ def main(rank: int = 0, world_size: int = 1):
     parser.add_argument('--audio', default=False, action='store_true',
                         help='Encode the audio in the output video')
     parser.add_argument('--video-codec', default='libx264', type=str, help='The video codec to use')
+    parser.add_argument('--batch-size', type=int, default=16, help='The processing batch size')
 
 
     args, _ = parser.parse_known_args()
@@ -106,8 +107,8 @@ def main(rank: int = 0, world_size: int = 1):
     all_features = []
     tx_frames = []
 
-    batch_size = 16
-    for b in range(0, len(input_frames), batch_size):
+    batch_size = args.batch_size
+    for b in tqdm(range(0, len(input_frames), batch_size)):
         curr_frames = input_frames[b:b+batch_size]
         curr_frames = transform(curr_frames)
 
@@ -122,14 +123,10 @@ def main(rank: int = 0, world_size: int = 1):
             if args.adaptor_name:
                 output = output[args.adaptor_name].features
             else:
-                output = output.features
+                output = output[1]
 
-        if curr_frames.shape[-2] != curr_frames.shape[-1]:
-            num_rows = curr_frames.shape[-2] // patch_size
-            num_cols = curr_frames.shape[-1] // patch_size
-        else:
-            num_rows = int(round(math.sqrt(curr_frames[0].shape[1])))
-            num_cols = num_rows
+        num_rows = curr_frames.shape[-2] // patch_size
+        num_cols = curr_frames.shape[-1] // patch_size
 
         output = rearrange(output, 'b (h w) c -> b h w c', h=num_rows, w=num_cols).float()
 
