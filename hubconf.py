@@ -19,6 +19,7 @@ from timm.models import clean_state_dict
 
 from radio.adaptor_registry import adaptor_registry
 from radio.common import DEFAULT_VERSION, RadioResource, RESOURCE_MAP
+from radio.enable_spectral_reparam import disable_spectral_reparam
 from radio.radio_model import RADIOModel, create_model_from_args
 from radio.input_conditioner import get_default_conditioner
 from radio.vitdet import apply_vitdet_arch, VitDetArgs
@@ -58,6 +59,10 @@ def radio_model(
         warnings.warn(f'Missing keys in state dict: {key_warn.missing_keys}')
     if key_warn.unexpected_keys:
         warnings.warn(f'Unexpected keys in state dict: {key_warn.unexpected_keys}')
+
+    if chk['args'].spectral_reparam:
+        disable_spectral_reparam(mod)
+        chk['args'].spectral_reparam = False
 
     conditioner = get_default_conditioner()
     conditioner.load_state_dict(get_prefix_state_dict(state_dict, "input_conditioner."))

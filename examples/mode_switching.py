@@ -75,7 +75,6 @@ def main(rank: int = 0, world_size: int = 1):
 
     rank_print('Loading RADIO...')
     radio, radio_preprocessor, _ = load_model(args.version, adaptor_names='dino_v2')
-    # radio_vitdet, _, _ = load_model('radio_v2.1', vitdet_window_size=16, adaptor_names='dino_v2')
     rank_print('Done')
 
     rank_print('Loading DINOv2...')
@@ -84,7 +83,6 @@ def main(rank: int = 0, world_size: int = 1):
 
     radio.cuda().eval()
     radio_preprocessor.cuda().eval()
-    # radio_vitdet.cuda().eval()
     dinov2.cuda().eval()
     dinov2_preprocessor.cuda().eval()
 
