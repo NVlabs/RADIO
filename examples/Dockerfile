@@ -1,7 +1,7 @@
 FROM nvcr.io/nvidia/pytorch:24.01-py3
 
 RUN apt-get update
-RUN apt-get install ffmpeg libx264-dev
+RUN apt-get install -y ffmpeg libx264-dev
 
 WORKDIR /app
 
