@@ -106,12 +106,12 @@ For summarization results we use the summarization token of the model. For Zero-
 | SigLIP-L/14            | 428        | 384        | 241        | 82.61               | 85.16           |
 | Intern-ViT-6B          | 5,902      | 224        | 63         | 83.20               | 78.43           |
 |                        | 5,537      | 448        | 14         |                     | 68.64           |
-| DFN CLIP-H/14          | 633        | 378        | 170        | 83.90               | 85.27           |
+| DFN CLIP-H/14          | 633        | 378        | 170        | **83.90**           | 85.27           |
 | OpenAI CLIP-L/14       | 305        | 336        | 414        | 75.54               | 79.80           |
 | DINOv2-g/14-reg        | 1,137      | 224        | 294        | -                   | 83.41           |
 | SAM-H/16               | 637        | 1024       | 12         | -                   | 22.12           |
 | E-RADIO-L              | 391        | 512        | 468        | 80.73               | 83.89           |
-| RADIO-ViT-H/16         | 653        | 432        | 158        | 82.93               | 86.06           |
+| RADIO-ViT-H/16         | 653        | 432        | 158        | 82.93               | **86.06**       |
 
 
 ### Segmentation metrics:
@@ -131,7 +131,7 @@ For summarization results we use the summarization token of the model. For Zero-
 | DINOv2-g/14-reg        | 48.68               | 82.78            | -        |
 | SAM-H/16               | 28.08               | 34.34            | 77.18    |
 | E-RADIO-L              | 48.22               | 81.64            | 76.31    |
-| RADIO-ViT-H/16         | 51.34               | 84.71            | 76.23    |
+| RADIO-ViT-H/16 (ours)  | **51.34**           | **84.71**        | 76.23    |
 
 
 ### Vision-language model performance metrics in LLaVa 1.5:
@@ -141,15 +141,15 @@ We replace the vision backbone and keep the same LLM and training recipe as in L
 | Model                  | GQA | POPE | TextVQA | VQAv2 |
 |------------------------|---------------------|----------------------|-------------------------|-----------------------|
 | OpenCLIP-H/14          | 57.94               | 83.61                | 50.48                   | 72.24                 |
-| MetaCLIP-H/14      | 60.57               | 84.76                | 53.65                   | 75.71                 |
-| SigLIP-L/14        | 57.70               | 84.85                | 56.65                   | 71.94                 |
-| Intern-ViT-6B      | 60.18               | 84.02                | 52.45                   | 76.75                 |
-| DFN CLIP-H/14      | 61.73               | 85.91                | 56.78                   | 78.78                 |
-| OpenAI CLIP-L/14   | 62.20               | 86.09                | **57.92**                   | 78.49                 |
-| DINOv2-g/14-reg    | 61.88               | 85.62                | 47.18                   | 76.23                 |
-| SAM-H/16           | 49.92               | 81.76                | 43.91                   | 57.65                 |
-| E-RADIO-L          | 61.70               | 85.07                | 51.47                   | 76.73                 |
-| RADIO-ViT-H/16     | **63.01**               | **86.20**                | 56.32                   | **79.28**                 |
+| MetaCLIP-H/14       | 60.57               | 84.76                | 53.65                   | 75.71                 |
+| SigLIP-L/14         | 57.70               | 84.85                | 56.65                   | 71.94                 |
+| Intern-ViT-6B       | 60.18               | 84.02                | 52.45                   | 76.75                 |
+| DFN CLIP-H/14       | 61.73               | 85.91                | 56.78                   | 78.78                 |
+| OpenAI CLIP-L/14    | 62.20               | 86.09                | **57.92**                   | 78.49                 |
+| DINOv2-g/14-reg     | 61.88               | 85.62                | 47.18                   | 76.23                 |
+| SAM-H/16            | 49.92               | 81.76                | 43.91                   | 57.65                 |
+| E-RADIO-L           | 61.70               | 85.07                | 51.47                   | 76.73                 |
+| RADIO-ViT-H/16 (ours)| **63.01**               | **86.20**                | 56.32                   | **79.28**                  |
 
 ### Probing 3D Awareness
 
@@ -160,13 +160,13 @@ NAVI dataset. For each task we report the accuracy, averaged
 over all thresholds. RADIO preserves features of DINOv2 and 
 performs much better than CLIP analogs. 
 
-| Backbone          | Depth | Surface Normals | Multi-view corr. |
-|--------------------|-------|-----------------|------------------|
-| DFN CLIP-H/14      | 52.5  | 23.0            | 20.3             |
-| OpenAI CLIP-L/14   | 53.7  | 25.3            | 20.7             |
-| DINOv2-g/14-reg    | **83.2**  | **59.6**            | 59.9             |
-| SAM-H/16           | 68.2  | 50.3            | 45.3             |
-| RADIO-ViT-H/16 (ours) | 81.0  | 58.5            | **62.1**             |
+| Backbone              | Depth | Surface Normals | Multi-view corr. |
+|-----------------------|-------|-----------------|------------------|
+| DFN CLIP-H/14         | 52.5  | 23.0            | 20.3             |
+| OpenAI CLIP-L/14      | 53.7  | 25.3            | 20.7             |
+| DINOv2-g/14-reg       | **83.2**  | **59.6**            | 59.9     |
+| SAM-H/16              | 68.2  | 50.3            | 45.3             |
+| RADIO-ViT-H/16 (ours) | 81.0  | 58.5            | **62.1**         |
 
 
 ## Detailed usage 
