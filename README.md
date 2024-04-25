@@ -270,6 +270,16 @@ output = model(images)
 
 </details>
 
+<details>
+<summary>E-RADIO limitations</summary>
+
+E-RADIO is a more efficient variant of RADIO, but it has some limitations:
+- E-RADIO naively supports only images with size divisible by 32. Other resolutions are supported but might result in a performance drop.
+- E-RADIO performance is sensative to the window size of the windowed attention in the 3rd and 4th block. For the best performance automatically adjust the window size for the input resolution: `model.model.set_optimal_window_size(IMAGE_SHAPE)`, where `IMAGE_SHAPE` is a tuple of (height, width) of the input image.
+
+
+</details>
+
 ## Training 
 
 _Coming Soon_
