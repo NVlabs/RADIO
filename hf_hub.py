@@ -110,7 +110,7 @@ def main():
     # Infer using TorchHub model.
     print("Infer using TorchHub model...")
     torchhub_model = torch.hub.load(
-        args.torchhub_repo, "radio_model", version=args.checkpoint_path
+        args.torchhub_repo, "radio_model", version=args.checkpoint_path, force_reload=True
     )
     torchhub_model.cuda().eval()
     torchhub_model_summary, torchhub_model_features = torchhub_model(x)

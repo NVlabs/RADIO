@@ -1162,6 +1162,9 @@ class FasterViT(nn.Module):
         return {'rpb'}
 
     def forward_features(self, x):
+        _, _, H, W = x.shape
+        if H % 32 != 0 or W % 32 != 0:
+            raise ValueError(f"E-RADIO requires input dimensions to be divisible by 32 but got H x W: {H} x {W}")
         x = self.patch_embed(x)
         full_features = None
         for il, level in enumerate(self.levels):
