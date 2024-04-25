@@ -35,10 +35,7 @@ from visualize_features import get_robust_pca, get_pca_map
 @torch.inference_mode()
 def main(rank: int = 0, world_size: int = 1):
     '''
-    Computes the RankMe (http://arxiv.org/abs/2210.02885) and LiDAR (http://arxiv.org/abs/2312.04000)
-    estimates of the rank of the produced embeddings. While RADIO doesn't train in a multi-view setting
-    which is an assumption of LiDAR, the metric does integrate an important concept of the invariance of the
-    summary features to different view/augmentations of the same image.
+    Computes the PCA features for every frame in a supplied video and renders them into a new video.
     '''
 
     local_rank = rank % torch.cuda.device_count()
