@@ -93,27 +93,44 @@ Please see more details on usage in the [Quick Start](#quick-start---torchhub) s
 
 ## Results
 
-### Summarization and segmentation metrics:
+### Model stats and summarization metrics:
 
-Setup:
+For summarization results we use the summarization token of the model. For Zero-shot we use the corresponding language embedding for most models. For RADIO models we use language embedding from XXXXXX model.
 
-- For summarization results we use the summarization token of the model. For Zero-shot we use the corresponding language embedding for most models. For RADIO models we use language embedding from XXXXXX model.
-- Segmentation setup
+| Model                  | Params (M) | Resolution | Throughput | ImageNet1K Zero-shot | ImageNet1K k-NN |
+|------------------------|------------|------------|------------|---------------------|-----------------|
+| OpenCLIP-H/14          | 632        | 224        | 503        | 77.19               | 81.10           |
+| MetaCLIP-H/14          | 632        | 224        | 486        | 80.51               | 82.12           |
+| SigLIP-L/14            | 428        | 384        | 241        | 82.61               | 85.16           |
+| Intern-ViT-6B          | 5,902      | 224        | 63         | 83.20               | 78.43           |
+|                        | 5,537      | 448        | 14         |                     | 68.64           |
+| DFN CLIP-H/14          | 633        | 378        | 170        | 83.90               | 85.27           |
+| OpenAI CLIP-L/14       | 305        | 336        | 414        | 75.54               | 79.80           |
+| DINOv2-g/14-reg        | 1,137      | 224        | 294        | -                   | 83.41           |
+| SAM-H/16               | 637        | 1024       | 12         | -                   | 22.12           |
+| E-RADIO-L              | 391        | 512        | 468        | 80.73               | 83.89           |
+| RADIO-ViT-H/16         | 653        | 432        | 158        | 82.93               | 86.06           |
+
+
+### Segmentation metrics:
+- Segmentation setup: linear probing, simple head
 - For SAM COCO results, we replace the vision backbone of the SAM model with the corresponding RADIO model. The decoder is frozen from the original model.
 
-| Model                  | Params (M) | Resolution | Throughput | ImageNet1K Zero-shot | ImageNet1K k-NN | Segmentation ADE20k | Segmentation VOC | SAM COCO |
-|------------------------|------------|------------|------------|---------------------|-----------------|---------------------|------------------|----------|
-| OpenCLIP-H/14          | 632        | 224        | 503        | 77.19               | 81.10           | 40.04               | 68.03            | -        |
-| MetaCLIP-H/14          | 632        | 224        | 486        | 80.51               | 82.12           | 35.39               | 62.62            | -        |
-| SigLIP-L/14            | 428        | 384        | 241        | 82.61               | 85.16           | 40.53               | 70.31            | -        |
-| Intern-ViT-6B          | 5,902      | 224        | 63         | 83.20               | 78.43           | 47.20               | 76.85            | -        |
-|                        | 5,537      | 448        | 14         |                     | 68.64           | 42.78               | 74.43            | -        |
-| DFN CLIP-H/14          | 633        | 378        | 170        | 83.90               | 85.27           | 39.00               | 70.29            | -        |
-| OpenAI CLIP-L/14       | 305        | 336        | 414        | 75.54               | 79.80           | 36.51               | 67.04            | -        |
-| DINOv2-g/14-reg        | 1,137      | 224        | 294        | -                   | 83.41           | 48.68               | 82.78            | -        |
-| SAM-H/16               | 637        | 1024       | 12         | -                   | 22.12           | 28.08               | 34.34            | 77.18    |
-| E-RADIO-L              | 391        | 512        | 468        | 80.73               | 83.89           | 48.22               | 81.64            | 76.31    |
-| RADIO-ViT-H/16         | 653        | 432        | 158        | 82.93               | 86.06           | 51.34               | 84.71            | 76.23    |
+
+| Model                  | Segmentation ADE20k | Segmentation VOC | SAM COCO |
+|------------------------|---------------------|------------------|----------|
+| OpenCLIP-H/14          | 40.04               | 68.03            | -        |
+| MetaCLIP-H/14          | 35.39               | 62.62            | -        |
+| SigLIP-L/14            | 40.53               | 70.31            | -        |
+| Intern-ViT-6B          | 47.20               | 76.85            | -        |
+|                        | 42.78               | 74.43            | -        |
+| DFN CLIP-H/14          | 39.00               | 70.29            | -        |
+| OpenAI CLIP-L/14       | 36.51               | 67.04            | -        |
+| DINOv2-g/14-reg        | 48.68               | 82.78            | -        |
+| SAM-H/16               | 28.08               | 34.34            | 77.18    |
+| E-RADIO-L              | 48.22               | 81.64            | 76.31    |
+| RADIO-ViT-H/16         | 51.34               | 84.71            | 76.23    |
+
 
 ### Vision-language model performance metrics in LLaVa 1.5:
 
