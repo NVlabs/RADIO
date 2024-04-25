@@ -107,6 +107,12 @@ class RADIOModel(nn.Module):
             fn()
 
     def forward(self, x: torch.Tensor) -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
+        res_step = self.min_resolution_step
+        if x.shape[-2] % res_step != 0 or x.shape[-1] % res_step != 0:
+            raise ValueError('The input resolution must be a multiple of `self.min_resolution_step`. '
+                             '`self.get_nearest_supported_resolution(<height>, <width>) is provided as a convenience API. '
+                             f'Input: {x.shape[-2:]}, Nearest: {self.get_nearest_supported_resolution(*x.shape[-2:])}')
+
         x = self.input_conditioner(x)
         y = self.model.forward_features(x)
 
