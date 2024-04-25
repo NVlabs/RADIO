@@ -5,11 +5,11 @@
 
 # \[CVPR 2024\] AM-RADIO: Reduce All Domains Into One
 
-<div align="left">
-  <img src="assets/radio.png" width="256"/>
-</div>
+<!-- <div align="left"> -->
+<img src="assets/radio.png" width="256" align="right">
+<!-- </div> -->
 
-Official PyTorch implementation of \[CVPR 2024\] [**AM-RADIO: Agglomerative Model – Reduce All Domains Into One**](https://arxiv.org/abs/2312.06709v3).
+Official PyTorch implementation of \[CVPR 2024\] [**AM-RADIO: Agglomerative Model – Reduce All Domains Into One**](https://arxiv.org/abs/2312.06709v3). 
 
 
 
@@ -21,8 +21,10 @@ For business inquiries, please visit our website and submit the form: [NVIDIA Re
 
 \[[Paper](https://arxiv.org/abs/2312.06709)\]\[[BibTex](#citing-radio)\]
 
----
+<br clear="left"/>
 
+---
+ 
 
 ## News/Release
 - [4.30.2024] 🔥 README is updated with more metrics, Arxiv is updated with new results.
@@ -171,6 +173,7 @@ performs much better than CLIP analogs.
 
 <details>
 <summary>Torch hub</summary>
+
 ```Python
 import torch
 
