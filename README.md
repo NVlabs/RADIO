@@ -25,7 +25,7 @@ For business inquiries, please visit our website and submit the form: [NVIDIA Re
 
 
 ## News/Release
-- [4.30.2024] 🔥 README is updated with more metrics, Arxiv is updated with new resutls.
+- [4.30.2024] 🔥 README is updated with more metrics, Arxiv is updated with new results.
 - [3.21.2024] 🔥 RADIOv2.1 is released. Trained in bf16, improves metrics!
 - [2.26.2024]  AM-RADIO paper has been accepted to **CVPR 2024**
 - [2.15.2024]  RADIOv2 is released. Trained with DFN CLIP; OpenAI CLIP; DINOv2; SAM teachers. Note that SAM teacher was not used in previous models.
