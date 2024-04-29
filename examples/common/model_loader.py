@@ -9,6 +9,7 @@ from torch.nn import functional as F
 from timm.data import IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD, OPENAI_CLIP_MEAN, OPENAI_CLIP_STD
 
 from radio.radio_model import RadioOutput
+from radio.input_conditioner import InputConditioner
 
 class DinoWrapper(nn.Module):
     def __init__(self, dino_model: nn.Module):
@@ -83,7 +84,13 @@ class CLIPWrapper(nn.Module):
         return token
 
     def encode_text(self, text, normalize: bool = False):
-        return self.inner.encode_text(text, normalize=normalize)
+        try:
+            return self.inner.encode_text(text, normalize=normalize)
+        except TypeError:
+            ret = self.inner.encode_text(text)
+            if normalize:
+                ret = F.normalize(ret, dim=-1)
+            return ret
 
 
 class SigLIPWrapper(CLIPWrapper):
@@ -180,6 +187,50 @@ class InternViTWrapper(nn.Module):
         return token
 
 
+class OpenAI_CLIP_VisionAdapter(nn.Module):
+    def __init__(self, model):
+        super().__init__()
+        self.input_resolution = model.input_resolution
+        self.output_dim = model.output_dim
+        self.conv1 = model.conv1
+
+        self.class_embedding = model.class_embedding
+        self.positional_embedding = model.positional_embedding
+        self.ln_pre = model.ln_pre
+
+        self.transformer = model.transformer
+
+        self.ln_post = model.ln_post
+        self.proj = model.proj
+
+    @property
+    def patch_size(self):
+        return self.conv1.kernel_size
+
+    def forward(self, x: torch.Tensor):
+        x = self.conv1(x)  # shape = [*, width, grid, grid]
+        x = x.reshape(x.shape[0], x.shape[1], -1)  # shape = [*, width, grid ** 2]
+        x = x.permute(0, 2, 1)  # shape = [*, grid ** 2, width]
+        x = torch.cat([
+            self.class_embedding.to(x.dtype) + torch.zeros(x.shape[0], 1, x.shape[-1], dtype=x.dtype, device=x.device),
+            x
+        ], dim=1)  # shape = [*, grid ** 2 + 1, width]
+        x = x + self.positional_embedding.to(x.dtype)
+        x = self.ln_pre(x)
+
+        x = x.permute(1, 0, 2)  # NLD -> LND
+        x = self.transformer(x)
+        x = x.permute(1, 0, 2)  # LND -> NLD
+
+        feats = x[:, 1:]
+
+        x = self.ln_post(x[:, 0, :])
+
+        if self.proj is not None:
+            x = x @ self.proj
+
+        return x, feats
+
 @dataclass
 class ModelInfo:
     model_class: str
@@ -187,7 +238,8 @@ class ModelInfo:
 
 
 def load_model(version: str, adaptor_names: str = None, use_huggingface: bool = False, use_local_lib: bool = True,
-               device: torch.device = None, return_spatial_features: bool = True, force_reload: bool = False, **kwargs):
+               device: torch.device = None, return_spatial_features: bool = True, force_reload: bool = False,
+               torchhub_repo="NVlabs/RADIO", **kwargs):
     kwargs = {k: v for k, v in kwargs.items() if v is not None}
 
     if os.path.isfile(version) or 'radio' in version:
@@ -198,7 +250,7 @@ def load_model(version: str, adaptor_names: str = None, use_huggingface: bool = 
             from hubconf import radio_model
             model = radio_model(version=version, progress=True, adaptor_names=adaptor_names, **kwargs)
         else:
-            model: nn.Module = torch.hub.load('NVlabs/RADIO', 'radio_model', version=version, progress=True,
+            model: nn.Module = torch.hub.load(torchhub_repo, 'radio_model', version=version, progress=True,
                                               adaptor_names=adaptor_names, return_spatial_features=return_spatial_features,
                                               force_reload=force_reload, **kwargs,
             )
@@ -209,7 +261,6 @@ def load_model(version: str, adaptor_names: str = None, use_huggingface: bool = 
         model = torch.hub.load('facebookresearch/dinov2', version, pretrained=True, force_reload=force_reload, **kwargs)
         model = DinoWrapper(model)
 
-        from radio.input_conditioner import InputConditioner
         preprocessor = InputConditioner(1.0, IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD)
         info = ModelInfo(model_class='DINOv2', model_subtype=version.replace('dinov2_', ''))
     elif version.startswith('open_clip'):
@@ -218,7 +269,6 @@ def load_model(version: str, adaptor_names: str = None, use_huggingface: bool = 
         model = open_clip.create_model(model_arch, pretrained, device=device)
         viz_model = model.visual
 
-        from radio.input_conditioner import InputConditioner
         preprocessor = InputConditioner(1.0,
             getattr(viz_model, 'image_mean', open_clip.OPENAI_DATASET_MEAN),
             getattr(viz_model, 'image_std', open_clip.OPENAI_DATASET_STD),
@@ -232,6 +282,27 @@ def load_model(version: str, adaptor_names: str = None, use_huggingface: bool = 
 
         model = factory(model, tokenizer, adaptor_names, clip_mode='clip' in adaptor_names if adaptor_names else False)
         info = ModelInfo(model_class='open_clip', model_subtype=pretrained)
+    elif version.startswith('openai_clip'):
+        import clip as openai_clip
+
+        _, model_name = version.split(',')
+        model, preprocess = openai_clip.load(
+            model_name,
+            device=device,
+            jit=False,
+        )
+
+        model.visual = OpenAI_CLIP_VisionAdapter(model.visual).to(device)
+        norm = preprocess.transforms[-1]
+        preprocessor = InputConditioner(
+            input_scale=1.0,
+            norm_mean=norm.mean,
+            norm_std=norm.std,
+            dtype=torch.float16,
+        )
+
+        model = CLIPWrapper(model, tokenizer=openai_clip.tokenize, adaptor_name=adaptor_names, clip_mode='clip' in adaptor_names if adaptor_names else False)
+        info = ModelInfo(model_class='openai_clip', model_subtype=model_name)
     elif version.startswith('sam'):
         from segment_anything.build_sam import sam_model_registry, ImageEncoderViT, Sam
         _, chk_path = version.split(',')
@@ -241,7 +312,6 @@ def load_model(version: str, adaptor_names: str = None, use_huggingface: bool = 
         model_name = fname[4:9]
         model = sam_model_registry[model_name](checkpoint=chk_path)
 
-        from radio.input_conditioner import InputConditioner
         preprocessor = InputConditioner(
             input_scale=255.0,
             norm_mean=model.pixel_mean,
@@ -268,7 +338,6 @@ def load_model(version: str, adaptor_names: str = None, use_huggingface: bool = 
 
         preprocessor = CLIPImageProcessor.from_pretrained(hfhub_name)
 
-        from radio.input_conditioner import InputConditioner
         preprocessor = InputConditioner(1.0,
             norm_mean=preprocessor.image_mean,
             norm_std=preprocessor.image_std,

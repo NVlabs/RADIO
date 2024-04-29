@@ -196,7 +196,27 @@ with torch.cuda.amp.autocast(dtype=torch.bfloat16):
     summary, spatial_features = model(x)
 ```
 
-#### Usage
+### HuggingFace
+
+```python
+from PIL import Image
+from transformers import AutoModel, CLIPImageProcessor
+
+hf_repo = "nvidia/RADIO" # For RADIO.
+# hf_repo = "nvidia/E-RADIO" # For E-RADIO.
+
+image_processor = CLIPImageProcessor.from_pretrained(hf_repo)
+model = AutoModel.from_pretrained(hf_repo, trust_remote_code=True)
+model.eval().cuda()
+
+image = Image.open('./examples/image1.png').convert('RGB')
+pixel_values = image_processor(images=image, return_tensors='pt').pixel_values
+pixel_values = pixel_values.to(torch.bfloat16).cuda()
+
+summary, features = model(pixel_values)
+```
+
+### Usage
 
 RADIO and E-RADIO will return a tuple with two tensors.
 The `summary` is similar to the `cls_token` in ViT and is meant to represent the general concept of the entire image.

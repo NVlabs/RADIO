@@ -16,8 +16,9 @@ from .enable_cpe_support import enable_cpe
 from .input_conditioner import InputConditioner
 # Register extra models
 from . import extra_timm_models
-from .adaptors import AdaptorBase, RadioOutput, AdaptorInput
+from .adaptor_base import AdaptorBase, RadioOutput, AdaptorInput
 from . import eradio_model
+from .enable_spectral_reparam import configure_spectral_reparam_from_args
 
 
 class Resolution(NamedTuple):
@@ -106,6 +107,12 @@ class RADIOModel(nn.Module):
             fn()
 
     def forward(self, x: torch.Tensor) -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
+        res_step = self.min_resolution_step
+        if x.shape[-2] % res_step != 0 or x.shape[-1] % res_step != 0:
+            raise ValueError('The input resolution must be a multiple of `self.min_resolution_step`. '
+                             '`self.get_nearest_supported_resolution(<height>, <width>) is provided as a convenience API. '
+                             f'Input: {x.shape[-2:]}, Nearest: {self.get_nearest_supported_resolution(*x.shape[-2:])}')
+
         x = self.input_conditioner(x)
         y = self.model.forward_features(x)
 
@@ -180,6 +187,11 @@ def create_model_from_args(args) -> nn.Module:
         **args.model_kwargs,
     )
 
+    if hasattr(model, 'norm') and not getattr(args, 'model_norm', False):
+        model.norm = nn.Identity()
+
+    model.head = nn.Identity()
+
     assert (
         not args.cls_token_per_teacher or args.cpe_max_size is not None
     ), "CPE must be enabled for multiple CLS tokens!"
@@ -191,5 +203,8 @@ def create_model_from_args(args) -> nn.Module:
             num_cls_tokens=len(args.teachers) if args.cls_token_per_teacher else 1,
             register_multiple=args.register_multiple,
         )
+
+    if args.spectral_reparam:
+        configure_spectral_reparam_from_args(model, args)
 
     return model

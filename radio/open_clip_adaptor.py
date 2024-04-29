@@ -13,7 +13,7 @@ import torch.nn.functional as F
 
 from .adaptor_registry import adaptor_registry, dict_t, state_t
 
-from .generic import GenericAdaptor
+from .adaptor_generic import GenericAdaptor
 
 
 class OpenCLIP_RADIO(GenericAdaptor):

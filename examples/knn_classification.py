@@ -52,7 +52,7 @@ def main(rank: int = 0, world_size: int = 1):
     parser.add_argument('--eval-dataset', default=None, type=str,
                         help='The name of the evaluation dataset, if different than the training one.'
     )
-    parser.add_argument('--resize-multiple', type=int, default=None,
+    parser.add_argument('--resize-multiple', type=int, default=16,
                         help='Resize images with dimensions a multiple of this value.'
                         ' This should be equal to the patch size of a ViT (e.g. RADIOv1)'
     )
@@ -82,12 +82,16 @@ def main(rank: int = 0, world_size: int = 1):
                         help='Force reload RADIO library'
     )
     parser.add_argument('--amp', default=False, action='store_true', help='Run in mixed precision')
+    parser.add_argument('--torchhub-repo',
+                        help="Path to the Torchhub repo", default="NVlabs/RADIO"
+    )
 
     args, _ = parser.parse_known_args()
 
     rank_print('Loading model...')
     model, preprocessor, info = load_model(args.model_version, vitdet_window_size=args.vitdet_window_size,
-                                           adaptor_names=args.adaptor_name, force_reload=args.force_reload)
+                                           adaptor_names=args.adaptor_name, force_reload=args.force_reload,
+                                           torchhub_repo=args.torchhub_repo)
     model.to(device=device).eval()
     rank_print('Done')
 

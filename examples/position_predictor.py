@@ -77,7 +77,7 @@ def main(rank: int = 0, world_size: int = 1):
     parser.add_argument(
         "--resize-multiple",
         type=int,
-        default=None,
+        default=16,
         help="Resize images with dimensions a multiple of this value."
         " This should be equal to the patch size of a ViT (e.g. RADIOv1)",
     )
@@ -109,6 +109,10 @@ def main(rank: int = 0, world_size: int = 1):
     parser.add_argument(
         "-lr", "--learning-rate", default=1e-2, type=float, help="Learning rate."
     )
+    parser.add_argument(
+        "--torchhub-repo",
+        help="Path to the Torchhub repo", default="NVlabs/RADIO"
+    )
 
     args, _ = parser.parse_known_args()
 
@@ -125,7 +129,7 @@ def main(rank: int = 0, world_size: int = 1):
         )
     else:
         radio_model = torch.hub.load(
-            "NVlabs/RADIO", "radio_model", version=args.model_version, progress=True
+            args.torchhub_repo, "radio_model", version=args.model_version, progress=True
         )
 
     radio_model.to(device=device)

@@ -76,7 +76,7 @@ def main(rank: int = 0, world_size: int = 1):
                              ' Default: The RADIO model\'s preferred resolution.'
     )
     parser.add_argument('--max-dim', default=False, action='store_true', help='Resize the max dimension to the specified resolution')
-    parser.add_argument('--resize-multiple', type=int, default=None,
+    parser.add_argument('--resize-multiple', type=int, default=16,
                         help='Resize images with dimensions a multiple of this value.'
                              ' This should be equal to the patch size of a ViT (e.g. RADIOv1)'
     )
@@ -88,6 +88,10 @@ def main(rank: int = 0, world_size: int = 1):
     parser.add_argument('--output-dir', default='vis_denoise', type=str)
     parser.add_argument('--adaptor-name', default=None, type=str, help='Generate features from a teacher adaptor')
     parser.add_argument('--patch-size', default=None, type=int, help='The model patch size')
+    parser.add_argument('--torchhub-repo',
+                        help="Path to the Torchhub repo", default="NVlabs/RADIO"
+    )
+
 
     args, _ = parser.parse_known_args()
 
@@ -96,7 +100,8 @@ def main(rank: int = 0, world_size: int = 1):
     random.seed(42 + rank)
 
     rank_print(f'Loading model: "{args.model_version}", ViTDet: {args.vitdet_window_size}, Adaptor: "{args.adaptor_name}", Resolution: {args.resolution}, Max: {args.max_dim}...')
-    model, preprocessor, info = load_model(args.model_version, vitdet_window_size=args.vitdet_window_size, adaptor_names=args.adaptor_name)
+    model, preprocessor, info = load_model(args.model_version, vitdet_window_size=args.vitdet_window_size, adaptor_names=args.adaptor_name,
+                                           torchhub_repo=args.torchhub_repo)
     model.to(device=device).eval()
     if isinstance(preprocessor, nn.Module):
         preprocessor.to(device).eval()
