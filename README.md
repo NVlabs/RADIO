@@ -83,7 +83,7 @@ summary, features = model(pixel_values)
 Please see more details on usage in the [Quick Start](#quick-start---torchhub) section. Information on how to load Adapters (teacher specific heads) is also available in the Quick Start section.
 
 <details>
-<summary>Previous retrained models</summary>
+<summary>Previously trained models</summary>
 
 | Name       | Architecture | Precision | Teachers                                 | Throughput | Zero Shot Top-1 | kNN Top-1 | ADE20k    | VOC       | GQA       | TextVQA   | VQAv2     | SAM-COCO  |
 |------------|--------------|-----------|------------------------------------------|------------|-----------------|-----------|-----------|-----------|-----------|-----------|-----------|-----------|
@@ -110,6 +110,7 @@ For summarization results we use the summarization token of the model. For Zero-
 | OpenAI CLIP-L/14       | 305        | 336        | 414        | 75.54               | 79.80           |
 | DINOv2-g/14-reg        | 1,137      | 224        | 294        | -                   | 83.41           |
 | SAM-H/16               | 637        | 1024       | 12         | -                   | 22.12           |
+|------------------------|------------|------------|------------|---------------------|-----------------|
 | E-RADIO-L              | 391        | 512        | 468        | 80.73               | 83.89           |
 | RADIO-ViT-H/16         | 653        | 432        | 158        | 82.93               | **86.06**       |
 
@@ -130,6 +131,7 @@ For summarization results we use the summarization token of the model. For Zero-
 | OpenAI CLIP-L/14       | 36.51               | 67.04            | -        |
 | DINOv2-g/14-reg        | 48.68               | 82.78            | -        |
 | SAM-H/16               | 28.08               | 34.34            | 77.18    |
+|------------------------|---------------------|------------------|----------|
 | E-RADIO-L              | 48.22               | 81.64            | 76.31    |
 | RADIO-ViT-H/16 (ours)  | **51.34**           | **84.71**        | 76.23    |
 
@@ -138,18 +140,20 @@ For summarization results we use the summarization token of the model. For Zero-
 
 We replace the vision backbone and keep the same LLM and training recipe as in LLaVa 1.5: 
 
-| Model                  | GQA | POPE | TextVQA | VQAv2 |
-|------------------------|---------------------|----------------------|-------------------------|-----------------------|
-| OpenCLIP-H/14          | 57.94               | 83.61                | 50.48                   | 72.24                 |
+| Model               | GQA                 | POPE                 | TextVQA                 | VQAv2                 |
+|---------------------|---------------------|----------------------|-------------------------|-----------------------|
+| OpenCLIP-H/14       | 57.94               | 83.61                | 50.48                   | 72.24                 |
 | MetaCLIP-H/14       | 60.57               | 84.76                | 53.65                   | 75.71                 |
 | SigLIP-L/14         | 57.70               | 84.85                | 56.65                   | 71.94                 |
-| Intern-ViT-6B       | 60.18               | 84.02                | 52.45                   | 76.75                 |
+| Intern-ViT-6B (224) | 60.18               | 84.02                | 52.45                   | 76.75                 |
+|               (448) | 61.19               | **87.23**            | **60.36**               | 78.83                 |      
 | DFN CLIP-H/14       | 61.73               | 85.91                | 56.78                   | 78.78                 |
-| OpenAI CLIP-L/14    | 62.20               | 86.09                | **57.92**                   | 78.49                 |
+| OpenAI CLIP-L/14    | 62.20               | 86.09                | 57.92                   | 78.49                 |
 | DINOv2-g/14-reg     | 61.88               | 85.62                | 47.18                   | 76.23                 |
 | SAM-H/16            | 49.92               | 81.76                | 43.91                   | 57.65                 |
+|---------------------|---------------------|----------------------|-------------------------|-----------------------|
 | E-RADIO-L           | 61.70               | 85.07                | 51.47                   | 76.73                 |
-| RADIO-ViT-H/16 (ours)| **63.01**               | **86.20**                | 56.32                   | **79.28**                  |
+| RADIO-ViT-H/16 (ours)| **63.01**          | 86.20                | 56.32                   | **79.28**             |
 
 ### Probing 3D Awareness
 
@@ -166,6 +170,7 @@ performs much better than CLIP analogs.
 | OpenAI CLIP-L/14      | 53.7  | 25.3            | 20.7             |
 | DINOv2-g/14-reg       | **83.2**  | **59.6**            | 59.9     |
 | SAM-H/16              | 68.2  | 50.3            | 45.3             |
+|-----------------------|-------|-----------------|------------------|
 | RADIO-ViT-H/16 (ours) | 81.0  | 58.5            | **62.1**         |
 
 
