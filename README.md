@@ -1,12 +1,17 @@
+[![Star on GitHub](https://img.shields.io/github/stars/NVlabs/RADIO.svg?style=social)](https://github.com/NVlabs/RADIO/stargazers)
+[![License](https://img.shields.io/badge/license-NC-blue.svg)](LICENSE)
+[![Paper](https://img.shields.io/badge/paper-arXiv.2312.06709-blue.svg)](https://arxiv.org/abs/2312.06709)
+[![Paper](https://img.shields.io/badge/paper-CVPR.2024-blue.svg)](https://arxiv.org/abs/2312.06709)
+
 # \[CVPR 2024\] AM-RADIO: Reduce All Domains Into One
 
-<div align="left">
-  <img src="assets/radio.png" width="256"/>
-</div>
+<!-- <div align="left"> -->
+<img src="assets/radio.png" width="256" align="right">
+<!-- </div> -->
 
-Official PyTorch implementation of \[CVPR 2024\] [**AM-RADIO: Agglomerative Model – Reduce All Domains Into One**](https://arxiv.org/abs/2312.06709v3).
+Official PyTorch implementation of \[CVPR 2024\] [**AM-RADIO: Agglomerative Model – Reduce All Domains Into One**](https://arxiv.org/abs/2312.06709v3). 
 
-[![Star on GitHub](https://img.shields.io/github/stars/NVlabs/RADIO.svg?style=social)](https://github.com/NVlabs/RADIO/stargazers)
+
 
 Mike Ranzinger, Greg Heinrich, [Jan Kautz](https://jankautz.com/), [Pavlo Molchanov](https://www.pmolchanov.com/).
 
@@ -16,19 +21,69 @@ For business inquiries, please visit our website and submit the form: [NVIDIA Re
 
 \[[Paper](https://arxiv.org/abs/2312.06709)\]\[[BibTex](#citing-radio)\]
 
+<br clear="left"/>
+
 ---
+ 
+
+## News/Release
+- [4.30.2024] 🔥 README is updated with more metrics, Arxiv is updated with new results.
+- [3.21.2024] 🔥 RADIOv2.1 is released. Trained in bf16, improves metrics!
+- [2.26.2024]  AM-RADIO paper has been accepted to **CVPR 2024**
+- [2.15.2024]  RADIOv2 is released. Trained with DFN CLIP; OpenAI CLIP; DINOv2; SAM teachers. Note that SAM teacher was not used in previous models.
+- [1.5.2024] Initial github repo is released.
+
+---
+
+## Abstract
+
 
 AM-RADIO is a framework to distill Large Vision Foundation models into a single one.
 RADIO, a new vision foundation model, excels across visual domains, serving as a superior replacement for vision backbones. Integrating CLIP variants, DINOv2, and SAM through distillation, it preserves unique features like text grounding and segmentation correspondence. Outperforming teachers in ImageNet zero-shot (+6.8%), kNN (+2.39%), and linear probing segmentation (+3.8%) and vision-language models (LLaVa 1.5 up to 1.5%), it scales to any resolution, supports non-square images. We offer an efficient variant, E-RADIO, which achieves is 6-10x faster than CLIP and DINOv2.
 
+<div align="left">
+  <img src="assets/radio_overview_github.png" width="768"/>
+</div>
 
-## News/Release
-- [3.21.2024] 🔥 RADIOv2.1 is released. Trained in bf16, improves metrics!
-- [2.26.2024] 🔥 AM-RADIO paper has been accepted to ** CVPR 2024 **
-- [2.15.2024]  RADIOv2 is released. Trained with DFN CLIP; OpenAI CLIP; DINOv2; SAM teachers. Note that SAM teacher was not used in previous models.
-- [1.5.2024] Initial github repo is released.
+## Quick start and model versions:
 
-## Pretrained Models
+The latest model version is RADIOv2. To load in the TorchHub, use the following command:
+
+```Python
+model = torch.hub.load('NVlabs/RADIO', 'radio_model', version='radio_v2', progress=True)
+```
+
+For ERADIO, use:
+```Python
+model = torch.hub.load('NVlabs/RADIO', 'radio_model', version='e-radio_v2', progress=True)  
+model.model.set_optimal_window_size(IMAGE_SHAPE) #where IMAGE_SHAPE is a tuple of (height, width) of the input image.
+```
+For the previous version, use `radio_v1` or `eradio_v1` for the E-RADIO model.
+
+For HF hub:
+```Python
+import torch
+from PIL import Image
+from transformers import AutoModel, CLIPImageProcessor
+
+hf_repo = "nvidia/RADIO" # For RADIO.
+# hf_repo = "nvidia/E-RADIO" # For E-RADIO.
+
+image_processor = CLIPImageProcessor.from_pretrained(hf_repo)
+model = AutoModel.from_pretrained(hf_repo, trust_remote_code=True)
+model.eval().cuda()
+
+image = Image.open('./assets/radio.png').convert('RGB')
+pixel_values = image_processor(images=image, return_tensors='pt').pixel_values
+pixel_values = pixel_values.to(torch.bfloat16).cuda()
+
+summary, features = model(pixel_values)
+```
+
+Please see more details on usage in the [Quick Start](#quick-start---torchhub) section. Information on how to load Adapters (teacher specific heads) is also available in the Quick Start section.
+
+<details>
+<summary>Previously trained models</summary>
 
 | Name       | Architecture | Precision | Teachers                                 | Throughput | Zero Shot Top-1 | kNN Top-1 | ADE20k    | VOC       | GQA       | TextVQA   | VQAv2     | SAM-COCO  |
 |------------|--------------|-----------|------------------------------------------|------------|-----------------|-----------|-----------|-----------|-----------|-----------|-----------|-----------|
@@ -36,11 +91,93 @@ RADIO, a new vision foundation model, excels across visual domains, serving as a
 | radio_v2   | ViT-H/16-CPE | Float32   | DFN CLIP; OpenAI CLIP; DINOv2; SAM       | 556        | 82.71           | 85.92     | 51.33     |           | 62.78     | **56.37** | 79.00     | 76.21     |
 | radio_v1   | ViT-H/14-CPE | Float32   | DFN CLIP; OpenAI CLIP; DINOv2            | 556        | 82.73           | 85.29     | 50.32     | **85.17** | 61.43     | 54.92     | 77.88     |           |
 | eradio_v1  | E-RADIO      | Float32   | Meta CLIP; DINOv2                        | 3697       | 77.87           | 83.73     | 45.50     | 79.95     | 59.55     | 46.31     | 72.05     |           |
+</details>
+
+## Results
+
+### Model stats and summarization metrics:
+
+For summarization results we use the summarization token of the model. For Zero-shot we use the corresponding language embedding for most models. For RADIO models we use language embedding from XXXXXX model.
+
+| Model                  | Params (M) | Resolution | Throughput | ImageNet1K Zero-shot | ImageNet1K k-NN |
+|------------------------|------------|------------|------------|---------------------|-----------------|
+| OpenCLIP-H/14          | 632        | 224        | 503        | 77.19               | 81.10           |
+| MetaCLIP-H/14          | 632        | 224        | 486        | 80.51               | 82.12           |
+| SigLIP-L/14            | 428        | 384        | 241        | 82.61               | 85.16           |
+| Intern-ViT-6B          | 5,902      | 224        | 63         | 83.20               | 78.43           |
+|                        | 5,537      | 448        | 14         |                     | 68.64           |
+| DFN CLIP-H/14          | 633        | 378        | 170        | **83.90**           | 85.27           |
+| OpenAI CLIP-L/14       | 305        | 336        | 414        | 75.54               | 79.80           |
+| DINOv2-g/14-reg        | 1,137      | 224        | 294        | -                   | 83.41           |
+| SAM-H/16               | 637        | 1024       | 12         | -                   | 22.12           |
+|------------------------|------------|------------|------------|---------------------|-----------------|
+| E-RADIO-L              | 391        | 512        | 468        | 80.73               | 83.89           |
+| RADIO-ViT-H/16         | 653        | 432        | 158        | 82.93               | **86.06**       |
 
 
-## Quick Start
+### Segmentation metrics:
+- Segmentation setup: linear probing, simple head
+- For SAM COCO results, we replace the vision backbone of the SAM model with the corresponding RADIO model. The decoder is frozen from the original model.
 
-### TorchHub
+
+| Model                  | Segmentation ADE20k | Segmentation VOC | SAM COCO |
+|------------------------|---------------------|------------------|----------|
+| OpenCLIP-H/14          | 40.04               | 68.03            | -        |
+| MetaCLIP-H/14          | 35.39               | 62.62            | -        |
+| SigLIP-L/14            | 40.53               | 70.31            | -        |
+| Intern-ViT-6B          | 47.20               | 76.85            | -        |
+|                        | 42.78               | 74.43            | -        |
+| DFN CLIP-H/14          | 39.00               | 70.29            | -        |
+| OpenAI CLIP-L/14       | 36.51               | 67.04            | -        |
+| DINOv2-g/14-reg        | 48.68               | 82.78            | -        |
+| SAM-H/16               | 28.08               | 34.34            | 77.18    |
+|------------------------|---------------------|------------------|----------|
+| E-RADIO-L              | 48.22               | 81.64            | 76.31    |
+| RADIO-ViT-H/16 (ours)  | **51.34**           | **84.71**        | 76.23    |
+
+
+### Vision-language model performance metrics in LLaVa 1.5:
+
+We replace the vision backbone and keep the same LLM and training recipe as in LLaVa 1.5: 
+
+| Model               | GQA                 | POPE                 | TextVQA                 | VQAv2                 |
+|---------------------|---------------------|----------------------|-------------------------|-----------------------|
+| OpenCLIP-H/14       | 57.94               | 83.61                | 50.48                   | 72.24                 |
+| MetaCLIP-H/14       | 60.57               | 84.76                | 53.65                   | 75.71                 |
+| SigLIP-L/14         | 57.70               | 84.85                | 56.65                   | 71.94                 |
+| Intern-ViT-6B (224) | 60.18               | 84.02                | 52.45                   | 76.75                 |
+|               (448) | 61.19               | **87.23**            | **60.36**               | 78.83                 |      
+| DFN CLIP-H/14       | 61.73               | 85.91                | 56.78                   | 78.78                 |
+| OpenAI CLIP-L/14    | 62.20               | 86.09                | 57.92                   | 78.49                 |
+| DINOv2-g/14-reg     | 61.88               | 85.62                | 47.18                   | 76.23                 |
+| SAM-H/16            | 49.92               | 81.76                | 43.91                   | 57.65                 |
+|---------------------|---------------------|----------------------|-------------------------|-----------------------|
+| E-RADIO-L           | 61.70               | 85.07                | 51.47                   | 76.73                 |
+| RADIO-ViT-H/16 (ours)| **63.01**          | 86.20                | 56.32                   | **79.28**             |
+
+### Probing 3D Awareness
+
+Probing 3D Awareness: we use the code from [Probing the 3D Awareness of Visual Foundation Models](https://github.com/mbanani/probe3d) and
+evaluate our RADIO model and its teachers on monocular depth,
+surface normals and multi-view correspondance tasks, using the
+NAVI dataset. For each task we report the accuracy, averaged
+over all thresholds. RADIO preserves features of DINOv2 and 
+performs much better than CLIP analogs. 
+
+| Backbone              | Depth | Surface Normals | Multi-view corr. |
+|-----------------------|-------|-----------------|------------------|
+| DFN CLIP-H/14         | 52.5  | 23.0            | 20.3             |
+| OpenAI CLIP-L/14      | 53.7  | 25.3            | 20.7             |
+| DINOv2-g/14-reg       | **83.2**  | **59.6**            | 59.9     |
+| SAM-H/16              | 68.2  | 50.3            | 45.3             |
+|-----------------------|-------|-----------------|------------------|
+| RADIO-ViT-H/16 (ours) | 81.0  | 58.5            | **62.1**         |
+
+
+## Detailed usage 
+
+<details>
+<summary>Torch hub</summary>
 
 ```Python
 import torch
@@ -151,7 +288,27 @@ images = preprocessor(images)
 output = model(images)
 ```
 
-## Training
+</details>
+
+<details>
+<summary>HuggingFace hub</summary>
+
+
+
+
+</details>
+
+<details>
+<summary>E-RADIO limitations</summary>
+
+E-RADIO is a more efficient variant of RADIO, but it has some limitations:
+- E-RADIO naively supports only images with size divisible by 32. Other resolutions are supported but might result in a performance drop.
+- E-RADIO performance is sensative to the window size of the windowed attention in the 3rd and 4th block. For the best performance automatically adjust the window size for the input resolution: `model.model.set_optimal_window_size(IMAGE_SHAPE)`, where `IMAGE_SHAPE` is a tuple of (height, width) of the input image.
+
+
+</details>
+
+## Training 
 
 _Coming Soon_
 
