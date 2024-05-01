@@ -97,7 +97,7 @@ Please see more details on usage in the [Quick Start](#quick-start---torchhub) s
 
 ### Model stats and summarization metrics:
 
-For summarization results we use the summarization token of the model. For Zero-shot we use the corresponding language embedding for most models. For RADIO models we use language embedding from XXXXXX model.
+For summarization results we use the summarization token of the model. For Zero-shot we use the corresponding language embedding for most models. For RADIO models we use language embedding from DFN CLIP 378 model.
 
 | Model                  | Params (M) | Resolution | Throughput | ImageNet1K Zero-shot | ImageNet1K k-NN |
 |------------------------|------------|------------|------------|---------------------|-----------------|
