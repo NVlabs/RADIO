@@ -3,13 +3,13 @@
 [![Paper](https://img.shields.io/badge/paper-arXiv.2312.06709-blue.svg)](https://arxiv.org/abs/2312.06709)
 [![Paper](https://img.shields.io/badge/paper-CVPR.2024-blue.svg)](https://arxiv.org/abs/2312.06709)
 
-# \[CVPR 2024\] AM-RADIO: Reduce All Domains Into One
+# \[CVPR 2024\] AM-RADIO: Agglomerative Vision Foundation Model - Reduce All Domains Into One
 
 <!-- <div align="left"> -->
 <img src="assets/radio.png" width="256" align="right">
 <!-- </div> -->
 
-Official PyTorch implementation of \[CVPR 2024\] [**AM-RADIO: Agglomerative Model – Reduce All Domains Into One**](https://arxiv.org/abs/2312.06709). 
+Official PyTorch implementation of \[CVPR 2024\] [**AM-RADIO: Agglomerative Vision Foundation Model - Reduce All Domains Into One**](https://arxiv.org/abs/2312.06709). 
 
 
 
@@ -151,7 +151,7 @@ We replace the vision backbone and keep the same LLM and training recipe as in L
 | OpenAI CLIP-L/14    | 62.20               | 86.09                | 57.92                   | 78.49                 |
 | DINOv2-g/14-reg     | 61.88               | 85.62                | 47.18                   | 76.23                 |
 | SAM-H/16            | 49.92               | 81.76                | 43.91                   | 57.65                 |
-|---------------------|---------------------|----------------------|-------------------------|-----------------------|
+|---------------------|-------------------|--------------------|-----------------------|---------------------|
 | E-RADIO-L           | 61.70               | 85.07                | 51.47                   | 76.73                 |
 | RADIO-ViT-H/16 (ours)| **63.01**          | 86.20                | 56.32                   | **79.28**             |
 
