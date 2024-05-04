@@ -46,12 +46,10 @@ def main():
     )
     parser.add_argument("--version", help="(E-)RADIO model version", required=True)
     parser.add_argument(
-        "--huggingface-repo-branch",
-        help="HuggingFace repository branch to push to",
-        default="main",
+        "--push", help="Push the model to HuggingFace", action="store_true"
     )
     parser.add_argument(
-        "--push", help="Push the model to HuggingFace", action="store_true"
+        "--commit-message", default=None, type=str, required=False, help="The commit message",
     )
     args = parser.parse_args()
 
@@ -123,7 +121,7 @@ def main():
     if args.push:
         # Push to HuggingFace Hub.
         huggingface_repo = args.hf_repo
-        commit = radio_model.push_to_hub(huggingface_repo, args.huggingface_repo_branch)
+        commit = radio_model.push_to_hub(huggingface_repo, create_pr=True, commit_message=args.commit_message)
         print(f"Pushed to {commit}")
 
 

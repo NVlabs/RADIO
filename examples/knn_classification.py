@@ -85,13 +85,15 @@ def main(rank: int = 0, world_size: int = 1):
     parser.add_argument('--torchhub-repo',
                         help="Path to the Torchhub repo", default="NVlabs/RADIO"
     )
+    parser.add_argument('--use-huggingface', default=False, action='store_true',
+                        help='Use the huggingface model')
 
     args, _ = parser.parse_known_args()
 
     rank_print('Loading model...')
     model, preprocessor, info = load_model(args.model_version, vitdet_window_size=args.vitdet_window_size,
                                            adaptor_names=args.adaptor_name, force_reload=args.force_reload,
-                                           torchhub_repo=args.torchhub_repo)
+                                           torchhub_repo=args.torchhub_repo, use_huggingface=args.use_huggingface)
     model.to(device=device).eval()
     rank_print('Done')
 
