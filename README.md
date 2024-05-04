@@ -58,12 +58,16 @@ import torch
 model_version="radio_v2" # for RADIO
 #model_version="e-radio_v2" # for E-RADIO
 model = torch.hub.load('NVlabs/RADIO', 'radio_model', version=model_version, progress=True, skip_validation=True)
-model.cuda().eval()
-x = torch.rand(1, 3, 224, 224, device='cuda')
+model.eval()
+x = torch.rand(1, 3, 224, 224)
 if "e-radio" in model_version:
     model.model.set_optimal_window_size(x.shape[2:]) #where it expects a tuple of (height, width) of the input image.
+if torch.cuda.is_available():                                                   
+    model.to("cuda")                                                            
+    x=x.to("cuda")
 
 summary, spatial_features = model(x)
+
 # RADIO also supports running in mixed precision:
 with torch.cuda.amp.autocast(dtype=torch.bfloat16):
     summary, spatial_features = model(x)
