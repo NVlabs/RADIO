@@ -12,10 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 from collections import namedtuple
-from typing import Optional, List, Union
+from typing import Callable, Optional, List, Union
 
 from timm.models import VisionTransformer
 import torch
+from torch import nn
 from transformers import PretrainedConfig, PreTrainedModel
 
 
@@ -44,6 +45,7 @@ class RADIOConfig(PretrainedConfig):
         preferred_resolution: Optional[Resolution] = None,
         adaptor_names: Union[str, List[str]] = None,
         vitdet_window_size: Optional[int] = None,
+        external_conditioner: Optional[bool] = False,
         **kwargs,
     ):
         self.args = args
@@ -62,6 +64,7 @@ class RADIOConfig(PretrainedConfig):
         )
         self.adaptor_names = adaptor_names
         self.vitdet_window_size = vitdet_window_size
+        self.external_conditioner = external_conditioner
         super().__init__(**kwargs)
 
 
@@ -74,7 +77,7 @@ class RADIOModel(PreTrainedModel):
 
     config_class = RADIOConfig
 
-    def __init__(self, config):
+    def __init__(self, config: RADIOConfig):
         super().__init__(config)
 
         RADIOArgs = namedtuple("RADIOArgs", config.args.keys())
@@ -114,6 +117,11 @@ class RADIOModel(PreTrainedModel):
             preferred_resolution=config.preferred_resolution,
             adaptors=adaptors,
         )
+        self.radio_model._external_conditioner = config.external_conditioner
+
+    @property
+    def adaptors(self) -> nn.ModuleDict:
+        return self.radio_model.adaptors
 
     @property
     def model(self) -> VisionTransformer:
@@ -122,6 +130,39 @@ class RADIOModel(PreTrainedModel):
     @property
     def input_conditioner(self) -> InputConditioner:
         return self.radio_model.input_conditioner
+
+    @property
+    def num_summary_tokens(self) -> int:
+        return self.radio_model.num_summary_tokens
+
+    @property
+    def patch_size(self) -> int:
+        return self.radio_model.patch_size
+
+    @property
+    def max_resolution(self) -> int:
+        return self.radio_model.max_resolution
+
+    @property
+    def preferred_resolution(self) -> Resolution:
+        return self.radio_model.preferred_resolution
+
+    @property
+    def window_size(self) -> int:
+        return self.radio_model.window_size
+
+    @property
+    def min_resolution_step(self) -> int:
+        return self.radio_model.min_resolution_step
+
+    def make_preprocessor_external(self) -> Callable[[torch.Tensor], torch.Tensor]:
+        return self.radio_model.make_preprocessor_external()
+
+    def get_nearest_supported_resolution(self, height: int, width: int) -> Resolution:
+        return self.radio_model.get_nearest_supported_resolution(height, width)
+
+    def switch_to_deploy(self):
+        return self.radio_model.switch_to_deploy()
 
     def forward(self, x: torch.Tensor):
         return self.radio_model.forward(x)

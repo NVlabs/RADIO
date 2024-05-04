@@ -9,7 +9,7 @@
 <img src="assets/radio.png" width="256" align="right">
 <!-- </div> -->
 
-Official PyTorch implementation of \[CVPR 2024\] [**AM-RADIO: Agglomerative Vision Foundation Model - Reduce All Domains Into One**](https://arxiv.org/abs/2312.06709). 
+Official PyTorch implementation of \[CVPR 2024\] [**AM-RADIO: Agglomerative Vision Foundation Model - Reduce All Domains Into One**](https://arxiv.org/abs/2312.06709).
 
 
 
@@ -24,7 +24,7 @@ For business inquiries, please visit our website and submit the form: [NVIDIA Re
 <br clear="left"/>
 
 ---
- 
+
 
 ## News/Release
 - [4.30.2024] 🔥 README is updated with more metrics, Arxiv is updated with new results.
@@ -55,22 +55,31 @@ To load in the TorchHub, use the following command:
 
 ```Python
 import torch
-model_version="radio_v2" # for RADIO
+model_version="radio_v2.1" # for RADIO
 #model_version="e-radio_v2" # for E-RADIO
 model = torch.hub.load('NVlabs/RADIO', 'radio_model', version=model_version, progress=True, skip_validation=True)
-model.eval()
-x = torch.rand(1, 3, 224, 224)
+model.cuda().eval()
+x = torch.rand(1, 3, 512, 512, device='cuda')
+
 if "e-radio" in model_version:
     model.model.set_optimal_window_size(x.shape[2:]) #where it expects a tuple of (height, width) of the input image.
-if torch.cuda.is_available():                                                   
-    model.to("cuda")                                                            
-    x=x.to("cuda")
 
+# RADIO expects the input to have values between [0, 1]. It will automatically normalize them to have mean 0 std 1.
 summary, spatial_features = model(x)
 
 # RADIO also supports running in mixed precision:
-with torch.cuda.amp.autocast(dtype=torch.bfloat16):
+with torch.autocast('cuda', dtype=torch.bfloat16):
     summary, spatial_features = model(x)
+
+# If you'd rather pre-normalize the inputs, then you can do this:
+conditioner = model.make_preprocessor_external()
+
+# Now, the model won't change the inputs, and it's up to the user to call `cond_x = conditioner(x)` before
+# calling `model(cond_x)`. You most likely would do this if you want to move the conditioning into your
+# existing data processing pipeline.
+with torch.autocast('cuda', dtype=torch.bfloat16):
+    cond_x = conditioner(x)
+    summary, spatial_features = model(cond_x)
 ```
 
 For the previous version, use `radio_v1` or `eradio_v1` for the E-RADIO model.
@@ -80,13 +89,17 @@ For the previous version, use `radio_v1` or `eradio_v1` for the E-RADIO model.
 ```Python
 import torch
 from PIL import Image
-from transformers import AutoModel, CLIPImageProcessor
+from transformers import AutoModel, AutoConfig, CLIPImageProcessor
 
 hf_repo = "nvidia/E-RADIO" # For E-RADIO.
 #hf_repo = "nvidia/RADIO" # For RADIO.
 
 image_processor = CLIPImageProcessor.from_pretrained(hf_repo)
-model = AutoModel.from_pretrained(hf_repo, trust_remote_code=True)
+# We're using `image_processor`, so we want to set `external_conditioner=True` for the model.
+# This is because RADIO will internal rescale the dynamic range of the input from [0, 1] to
+# be mean centered and unit std.dev., but the `image_processor` will also do this. So to prevent
+# this from being run twice, we tell RADIO not to run its rescaling.
+model = AutoModel.from_pretrained(hf_repo, external_conditioner=True, trust_remote_code=True)
 model.eval().cuda()
 
 image = Image.open('./assets/radio.png').convert('RGB')
@@ -154,7 +167,7 @@ For summarization results we use the summarization token of the model. For Zero-
 
 ### Vision-language model performance metrics in LLaVa 1.5:
 
-We replace the vision backbone and keep the same LLM and training recipe as in LLaVa 1.5: 
+We replace the vision backbone and keep the same LLM and training recipe as in LLaVa 1.5:
 
 | Model               | GQA                 | POPE                 | TextVQA                 | VQAv2                 |
 |---------------------|---------------------|----------------------|-------------------------|-----------------------|
@@ -162,7 +175,7 @@ We replace the vision backbone and keep the same LLM and training recipe as in L
 | MetaCLIP-H/14       | 60.57               | 84.76                | 53.65                   | 75.71                 |
 | SigLIP-L/14         | 57.70               | 84.85                | 56.65                   | 71.94                 |
 | Intern-ViT-6B (224) | 60.18               | 84.02                | 52.45                   | 76.75                 |
-|               (448) | 61.19               | **87.23**            | **60.36**               | 78.83                 |      
+|               (448) | 61.19               | **87.23**            | **60.36**               | 78.83                 |
 | DFN CLIP-H/14       | 61.73               | 85.91                | 56.78                   | 78.78                 |
 | OpenAI CLIP-L/14    | 62.20               | 86.09                | 57.92                   | 78.49                 |
 | DINOv2-g/14-reg     | 61.88               | 85.62                | 47.18                   | 76.23                 |
@@ -177,8 +190,8 @@ Probing 3D Awareness: we use the code from [Probing the 3D Awareness of Visual F
 evaluate our RADIO model and its teachers on monocular depth,
 surface normals and multi-view correspondance tasks, using the
 NAVI dataset. For each task we report the accuracy, averaged
-over all thresholds. RADIO preserves features of DINOv2 and 
-performs much better than CLIP analogs. 
+over all thresholds. RADIO preserves features of DINOv2 and
+performs much better than CLIP analogs.
 
 | Backbone              | Depth | Surface Normals | Multi-view corr. |
 |-----------------------|-------|-----------------|------------------|
@@ -190,7 +203,7 @@ performs much better than CLIP analogs.
 | RADIO-ViT-H/16 (ours) | 81.0  | 58.5            | **62.1**         |
 
 
-## Detailed usage 
+## Detailed usage
 
 <details>
 <summary>Torch hub</summary>
@@ -324,7 +337,7 @@ E-RADIO is a more efficient variant of RADIO, but it has some limitations:
 
 </details>
 
-## Training 
+## Training
 
 _Coming Soon_
 

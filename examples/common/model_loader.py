@@ -8,7 +8,7 @@ from torch.nn import functional as F
 
 from timm.data import IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD, OPENAI_CLIP_MEAN, OPENAI_CLIP_STD
 
-from radio.radio_model import RadioOutput
+from radio.adaptor_base import RadioOutput
 from radio.input_conditioner import InputConditioner
 
 class DinoWrapper(nn.Module):
@@ -244,8 +244,17 @@ def load_model(version: str, adaptor_names: str = None, use_huggingface: bool = 
 
     if os.path.isfile(version) or 'radio' in version:
         if use_huggingface:
-            from transformers import AutoModel
-            model: nn.Module = AutoModel.from_pretrained(f"nvidia/{version}", trust_remote_code=True, **kwargs)
+            from transformers import AutoModel, AutoConfig
+            hf_repo = 'E-RADIO' if 'eradio' in version else 'RADIO'
+            hf_repo = f"nvidia/{hf_repo}"
+            config = AutoConfig.from_pretrained(
+                hf_repo,
+                trust_remote_code=True,
+                version=version,
+                adaptor_names=adaptor_names,
+                **kwargs,
+            )
+            model: nn.Module = AutoModel.from_pretrained(hf_repo, config=config, trust_remote_code=True, **kwargs)
         elif use_local_lib:
             from hubconf import radio_model
             model = radio_model(version=version, progress=True, adaptor_names=adaptor_names, **kwargs)

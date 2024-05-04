@@ -51,6 +51,12 @@ class RADIOModel(nn.Module):
         self._patch_size = patch_size
         self._max_resolution = max_resolution
         self._window_size = window_size
+        # This is a hack workaround for huggingface, since their
+        # data prep is annoying and complicated. If set to true,
+        # then will not call `self.input_conditioner` on the
+        # input tensor. This will be set in `hf_model.RADIOModel`
+        # where appropriate.
+        self._external_conditioner = False
 
         adaptors = adaptors or dict()
         self.adaptors = nn.ModuleDict(adaptors)
@@ -108,12 +114,13 @@ class RADIOModel(nn.Module):
 
     def forward(self, x: torch.Tensor) -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
         res_step = self.min_resolution_step
-        if x.shape[-2] % res_step != 0 or x.shape[-1] % res_step != 0:
+        if res_step is not None and (x.shape[-2] % res_step != 0 or x.shape[-1] % res_step != 0):
             raise ValueError('The input resolution must be a multiple of `self.min_resolution_step`. '
                              '`self.get_nearest_supported_resolution(<height>, <width>) is provided as a convenience API. '
                              f'Input: {x.shape[-2:]}, Nearest: {self.get_nearest_supported_resolution(*x.shape[-2:])}')
 
-        x = self.input_conditioner(x)
+        if not self._external_conditioner:
+            x = self.input_conditioner(x)
         y = self.model.forward_features(x)
 
         if isinstance(self.model, VisionTransformer):
