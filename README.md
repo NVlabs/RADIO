@@ -47,20 +47,31 @@ RADIO, a new vision foundation model, excels across visual domains, serving as a
 
 ## Quick start and model versions:
 
-The latest model version is RADIOv2. To load in the TorchHub, use the following command:
+The latest model version is RADIOv2. We will update the description once new model is available.
+
+### TorchHub
+
+To load in the TorchHub, use the following command:
 
 ```Python
-model = torch.hub.load('NVlabs/RADIO', 'radio_model', version='radio_v2', progress=True)
+model_version="radio_v2" # for RADIO
+#model_version="e-radio_v2" # for E-RADIO
+model = torch.hub.load('NVlabs/RADIO', 'radio_model', version=model_version, progress=True, skip_validation=True)
+model.cuda().eval()
+x = torch.rand(1, 3, 224, 224, device='cuda')
+if "e-radio" in model_version:
+    model.model.set_optimal_window_size(x.shape[2:]) #where it expects a tuple of (height, width) of the input image.
+
+summary, spatial_features = model(x)
+# RADIO also supports running in mixed precision:
+with torch.cuda.amp.autocast(dtype=torch.bfloat16):
+    summary, spatial_features = model(x)
 ```
 
-For ERADIO, use:
-```Python
-model = torch.hub.load('NVlabs/RADIO', 'radio_model', version='e-radio_v2', progress=True)  
-model.model.set_optimal_window_size(IMAGE_SHAPE) #where IMAGE_SHAPE is a tuple of (height, width) of the input image.
-```
 For the previous version, use `radio_v1` or `eradio_v1` for the E-RADIO model.
 
-For HF hub:
+### HuggingFace (HF)
+
 ```Python
 import torch
 from PIL import Image
