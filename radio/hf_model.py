@@ -45,7 +45,6 @@ class RADIOConfig(PretrainedConfig):
         preferred_resolution: Optional[Resolution] = None,
         adaptor_names: Union[str, List[str]] = None,
         vitdet_window_size: Optional[int] = None,
-        external_conditioner: Optional[bool] = False,
         **kwargs,
     ):
         self.args = args
@@ -64,7 +63,6 @@ class RADIOConfig(PretrainedConfig):
         )
         self.adaptor_names = adaptor_names
         self.vitdet_window_size = vitdet_window_size
-        self.external_conditioner = external_conditioner
         super().__init__(**kwargs)
 
 
@@ -117,7 +115,6 @@ class RADIOModel(PreTrainedModel):
             preferred_resolution=config.preferred_resolution,
             adaptors=adaptors,
         )
-        self.radio_model._external_conditioner = config.external_conditioner
 
     @property
     def adaptors(self) -> nn.ModuleDict:

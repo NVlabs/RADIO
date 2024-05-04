@@ -91,15 +91,11 @@ import torch
 from PIL import Image
 from transformers import AutoModel, CLIPImageProcessor
 
-hf_repo = "nvidia/E-RADIO" # For E-RADIO.
-#hf_repo = "nvidia/RADIO" # For RADIO.
+# hf_repo = "nvidia/E-RADIO" # For E-RADIO.
+hf_repo = "nvidia/RADIO" # For RADIO.
 
 image_processor = CLIPImageProcessor.from_pretrained(hf_repo)
-# We're using `image_processor`, so we want to set `external_conditioner=True` for the model.
-# This is because RADIO will internally rescale the dynamic range of the input from [0, 1] to
-# be mean centered and unit std.dev., but the `image_processor` will also do this. So to prevent
-# this from being run twice, we tell RADIO not to run its rescaling.
-model = AutoModel.from_pretrained(hf_repo, external_conditioner=True, trust_remote_code=True)
+model = AutoModel.from_pretrained(hf_repo, trust_remote_code=True)
 model.eval().cuda()
 
 image = Image.open('./assets/radio.png').convert('RGB')

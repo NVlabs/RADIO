@@ -51,12 +51,6 @@ class RADIOModel(nn.Module):
         self._patch_size = patch_size
         self._max_resolution = max_resolution
         self._window_size = window_size
-        # This is a hack workaround for huggingface, since their
-        # data prep is annoying and complicated. If set to true,
-        # then will not call `self.input_conditioner` on the
-        # input tensor. This will be set in `hf_model.RADIOModel`
-        # where appropriate.
-        self._external_conditioner = False
 
         adaptors = adaptors or dict()
         self.adaptors = nn.ModuleDict(adaptors)
@@ -119,8 +113,7 @@ class RADIOModel(nn.Module):
                              '`self.get_nearest_supported_resolution(<height>, <width>) is provided as a convenience API. '
                              f'Input: {x.shape[-2:]}, Nearest: {self.get_nearest_supported_resolution(*x.shape[-2:])}')
 
-        if not self._external_conditioner:
-            x = self.input_conditioner(x)
+        x = self.input_conditioner(x)
         y = self.model.forward_features(x)
 
         if isinstance(self.model, VisionTransformer):
