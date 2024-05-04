@@ -100,7 +100,7 @@ model.eval().cuda()
 
 image = Image.open('./assets/radio.png').convert('RGB')
 pixel_values = image_processor(images=image, return_tensors='pt', do_resize=True).pixel_values
-pixel_values = pixel_values.to(torch.bfloat16).cuda()
+pixel_values = pixel_values.cuda()
 
 summary, features = model(pixel_values)
 ```
