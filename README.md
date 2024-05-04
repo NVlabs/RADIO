@@ -54,6 +54,7 @@ The latest model version is RADIOv2. We will update the description once new mod
 To load in the TorchHub, use the following command:
 
 ```Python
+import torch
 model_version="radio_v2" # for RADIO
 #model_version="e-radio_v2" # for E-RADIO
 model = torch.hub.load('NVlabs/RADIO', 'radio_model', version=model_version, progress=True, skip_validation=True)
