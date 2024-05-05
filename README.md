@@ -184,7 +184,7 @@ We replace the vision backbone and keep the same LLM and training recipe as in L
 
 Probing 3D Awareness: we use the code from [Probing the 3D Awareness of Visual Foundation Models](https://github.com/mbanani/probe3d) and
 evaluate our RADIO model and its teachers on monocular depth,
-surface normals and multi-view correspondance tasks, using the
+surface normals and multi-view correspondence tasks, using the
 NAVI dataset. For each task we report the accuracy, averaged
 over all thresholds. RADIO preserves features of DINOv2 and
 performs much better than CLIP analogs.
