@@ -66,7 +66,12 @@ class RADIOModel(nn.Module):
 
     @property
     def patch_size(self) -> int:
-        return self._patch_size
+        if self._patch_size is not None:
+            return self._patch_size
+        patch_gen = getattr(self.model, "patch_generator", None)
+        if patch_gen is not None:
+            return patch_gen.patch_size
+        return None
 
     @property
     def max_resolution(self) -> int:
