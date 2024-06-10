@@ -22,12 +22,21 @@ from transformers import PretrainedConfig, PreTrainedModel
 
 from .common import RESOURCE_MAP, DEFAULT_VERSION
 
-# Force import of eradio_model in order to register it.
+# Import all required modules.
+from .adaptor_base import AdaptorBase, RadioOutput, AdaptorInput
+from .adaptor_generic import GenericAdaptor, AdaptorBase
+from .adaptor_mlp import create_mlp_from_state
+from .adaptor_registry import adaptor_registry
+from .cls_token import ClsToken
+from .enable_cpe_support import enable_cpe
+from .enable_spectral_reparam import configure_spectral_reparam_from_args
 from .eradio_model import eradio
 from .radio_model import create_model_from_args
 from .radio_model import RADIOModel as RADIOModelBase, Resolution
 from .input_conditioner import get_default_conditioner, InputConditioner
-
+from .open_clip_adaptor import OpenCLIP_RADIO
+from .vit_patch_generator import ViTPatchGenerator
+from .vitdet import apply_vitdet_arch, VitDetArgs
 
 # Register extra models
 from .extra_timm_models import *
