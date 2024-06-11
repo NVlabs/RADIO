@@ -138,7 +138,7 @@ class RADIOModel(nn.Module):
                 all_summary = y[:, 0]
                 bb_summary = all_summary
                 all_feat = y[:, 1:]
-        elif isinstance(self.model, eradio_model.FasterViT):
+        elif isinstance(self.model, eradio_model.ERADIO):
             _, f = y
             all_feat = f.flatten(2).transpose(1, 2)
             all_summary = all_feat.mean(dim=1)
