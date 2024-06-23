@@ -353,11 +353,13 @@ If you find this repository useful, please consider giving a star and citation:
 
 #### CVPR 2024 Reference:
 ```bibtex
-@inProceedings{ranzinger2023amradio,
-  title={AM-RADIO: Agglomerative Visual Foundation Model -- Reduce All Domains Into One},
-  author={Mike Ranzinger and Greg Heinrich and Jan Kautz and Pavlo Molchanov},
-  booktitle={CVPR},
-  year={2024},
+@InProceedings{Ranzinger_2024_CVPR,
+    author    = {Ranzinger, Mike and Heinrich, Greg and Kautz, Jan and Molchanov, Pavlo},
+    title     = {AM-RADIO: Agglomerative Vision Foundation Model Reduce All Domains Into One},
+    booktitle = {Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)},
+    month     = {June},
+    year      = {2024},
+    pages     = {12490-12500}
 }
 ```
 
