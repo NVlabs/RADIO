@@ -72,7 +72,6 @@ def main(rank: int = 0, world_size: int = 1):
     parser.add_argument('-d', '--dataset', default='imagenet-1k',
                         help='The name of the dataset to classify'
     )
-    parser.add_argument('--data-dir', help='Image directory to use in lieu of dataset name', default=None)
     parser.add_argument('--split', default='validation',
                         help='The dataset split to use.'
     )
@@ -142,21 +141,14 @@ def main(rank: int = 0, world_size: int = 1):
                                        pad_mean=preprocessor.norm_mean if isinstance(preprocessor, InputConditioner) else None,)
 
     if not os.path.isdir(args.dataset):
-        if args.data_dir is not None:
-            ds_builder = load_dataset_builder("imagefolder", data_dir=args.data_dir)
-        else:
-            ds_builder = load_dataset_builder(args.dataset, trust_remote_code=True)
-        dataset = ds_builder.as_dataset(split=args.split)
-        dataset = dataset.to_iterable_dataset(num_shards=world_size * max(1, args.workers))
-        dataset = split_dataset_by_node(dataset, rank=rank, world_size=world_size)
-        if args.data_dir is not None:
-            dataset = dataset.map(lambda ex: dict(image=transform(ex['image']), label=torch.as_tensor(0, dtype=torch.int64)))
-        else:
-            dataset = dataset.map(lambda ex: dict(image=transform(ex['image']), label=torch.as_tensor(ex['label'], dtype=torch.int64)))
-        rank_print(f'Description: {ds_builder.info.description}')
+        ds_builder = load_dataset_builder(args.dataset, trust_remote_code=True)
     else:
-        dataset = ImageFolder(args.dataset, transform=transform)
-        dataset.samples.sort(key=lambda s: s[0])
+        ds_builder = load_dataset_builder("imagefolder", data_dir=args.dataset)
+    dataset = ds_builder.as_dataset(split=args.split)
+    dataset = dataset.to_iterable_dataset(num_shards=world_size * max(1, args.workers))
+    dataset = split_dataset_by_node(dataset, rank=rank, world_size=world_size)
+    dataset = dataset.map(lambda ex: dict(image=transform(ex['image']), label=torch.as_tensor(0, dtype=torch.int64)))
+    rank_print(f'Description: {ds_builder.info.description}')
 
     loader = DataLoader(dataset, batch_size=args.batch_size, shuffle=False,
                         num_workers=args.workers, collate_fn=partial(collate, group=False),
@@ -230,7 +222,7 @@ def main(rank: int = 0, world_size: int = 1):
             for i, feats in enumerate(all_feat):
                 colored = []
                 for features in feats:
-                    color = get_pca_map(features, images.shape[-2:])
+                    color = get_pca_map(features, images.shape[-2:], interpolation='bilinear')
                     colored.append(color)
 
                 orig = cv2.cvtColor(images[i].permute(1, 2, 0).cpu().numpy(), cv2.COLOR_RGB2BGR)

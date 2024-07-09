@@ -51,6 +51,10 @@ def _forward_intermediates_cpe(
         aggregation: Optional[str] = "sparse",
 ) -> Union[List[torch.Tensor], Tuple[torch.Tensor, List[torch.Tensor]]]:
     """ Forward features that returns intermediates.
+
+    The Dense layer aggregation method is inspired from the paper: "Dense Connector for MLLMs"
+    by Yao, Huanjin et al. (2024). arXiv preprint arXiv:2405.13800}
+
     Args:
         x: Input image tensor
         indices: Take last n blocks if int, select matching indices if sequence
