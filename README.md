@@ -333,6 +333,16 @@ E-RADIO is a more efficient variant of RADIO, but it has some limitations:
 
 </details>
 
+### Intermediate Layer Activations
+_(Currently only supported with RADIO)_
+
+Intermediate layer activations can be fetched during inference by using the `forward_intermediates()` method.
+Example:
+
+```Python
+outputs = model.forward_intermediates(images, indices=[7, 15, 23, 31])
+```
+
 ## Training
 
 _Coming Soon_
