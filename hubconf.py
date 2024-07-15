@@ -37,7 +37,7 @@ def radio_model(
 
     if os.path.isfile(version):
         chk = torch.load(version, map_location="cpu")
-        resource = RadioResource(version, patch_size=None, max_resolution=None, preferred_resolution=None, vitdet_num_global=4)
+        resource = RadioResource(version, patch_size=None, max_resolution=None, preferred_resolution=None)
     else:
         resource = RESOURCE_MAP[version]
         chk = load_state_dict_from_url(
