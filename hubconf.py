@@ -37,7 +37,7 @@ def radio_model(
 
     if os.path.isfile(version):
         chk = torch.load(version, map_location="cpu")
-        resource = RadioResource(version, patch_size=None, max_resolution=None, preferred_resolution=None)
+        resource = RadioResource(version, patch_size=None, max_resolution=None, preferred_resolution=None, vitdet_num_global=4)
     else:
         resource = RESOURCE_MAP[version]
         chk = load_state_dict_from_url(
@@ -132,7 +132,15 @@ def radio_model(
     )
 
     if vitdet_window_size is not None:
-        apply_vitdet_arch(mod, VitDetArgs(vitdet_window_size, radio.num_summary_tokens))
+        apply_vitdet_arch(
+            mod,
+            VitDetArgs(
+                vitdet_window_size,
+                radio.num_summary_tokens,
+                num_windowed=resource.vitdet_num_windowed,
+                num_global=resource.vitdet_num_global,
+            ),
+        )
 
     return radio
 
