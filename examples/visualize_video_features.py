@@ -75,13 +75,13 @@ def main(rank: int = 0, world_size: int = 1):
                         help='Encode the audio in the output video')
     parser.add_argument('--video-codec', default='libx264', type=str, help='The video codec to use')
     parser.add_argument('--batch-size', type=int, default=16, help='The processing batch size')
-
+    parser.add_argument('--force-reload', default=False, action='store_true', help='Reload the torch.hub codebase')
 
     args, _ = parser.parse_known_args()
 
     rank_print(f'Loading model: "{args.model_version}", ViTDet: {args.vitdet_window_size}, Adaptor: "{args.adaptor_name}", Resolution: {args.resolution}, Max: {args.max_dim}...')
     model, preprocessor, info = load_model(args.model_version, vitdet_window_size=args.vitdet_window_size, adaptor_names=args.adaptor_name,
-                                           torchhub_repo=args.torchhub_repo)
+                                           torchhub_repo=args.torchhub_repo, force_reload=args.force_reload)
     model.to(device=device).eval()
     if isinstance(preprocessor, nn.Module):
         preprocessor.to(device).eval()
@@ -127,7 +127,7 @@ def main(rank: int = 0, world_size: int = 1):
 
         output = rearrange(output, 'b (h w) c -> b h w c', h=num_rows, w=num_cols).float()
 
-        all_features.append(output)
+        all_features.append(output.cpu())
 
     all_features = torch.cat(all_features)
     tx_frames = torch.cat(tx_frames)

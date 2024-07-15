@@ -243,10 +243,11 @@ def create_model_from_args(args) -> nn.Module:
     ), "CPE must be enabled for multiple CLS tokens!"
 
     if args.cpe_max_size is not None:
+        uq_teachers = set(t['name'] for t in args.teachers)
         enable_cpe(
             model,
             args.cpe_max_size,
-            num_cls_tokens=len(args.teachers) if args.cls_token_per_teacher else 1,
+            num_cls_tokens=len(uq_teachers) if args.cls_token_per_teacher else 1,
             register_multiple=args.register_multiple,
         )
 

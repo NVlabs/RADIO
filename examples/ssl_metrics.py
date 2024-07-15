@@ -129,7 +129,7 @@ def main(rank: int = 0, world_size: int = 1):
     summary_dim = 0
     spatial_dim = 0
 
-    for i, batch in tqdm(enumerate(loader), total=n_iter, desc='Model inference', disable=rank > 0):
+    for i, batch in tqdm(enumerate(loader), total=n_iter, desc='Processing', disable=rank > 0, position=0):
         if i == n_iter:
             break
 
@@ -142,30 +142,39 @@ def main(rank: int = 0, world_size: int = 1):
         # Roll the batch and variant dimensions into batch
         flat_images = images.flatten(0, 1)
 
+        summary, features = [], []
         with torch.autocast(device_type=device.type, dtype=torch.bfloat16):
-            flat_images = preprocessor(flat_images)
-            summary, features = model(flat_images)
+            num_steps = int(math.ceil(flat_images.shape[0] / args.batch_size))
+            for c in tqdm(range(0, flat_images.shape[0], args.batch_size), total=num_steps, desc='Model Inference', disable=rank > 0, position=1):
+                chunk = preprocessor(flat_images[c:c+args.batch_size])
+                c_summary, c_features = model(chunk)
+                summary.append(c_summary)
+                features.append(c_features)
 
-        # Unroll the batch and variant dimensions
-        g_summary = summary.float().reshape(*images.shape[:2], *summary.shape[1:])
-        g_features = features.float().reshape(*images.shape[:2], *features.shape[1:])
+            summary = torch.cat(summary)
+            features = torch.cat(features)
 
-        # RankMe is only computed for the regular images
-        rank_me_embeddings.append(g_summary[:, 0])
-        lidar_embeddings.append(g_summary)
+        for _ in tqdm(range(1), desc='LiDAR', disable=rank > 0, position=1):
+            # Unroll the batch and variant dimensions
+            g_summary = summary.float().reshape(*images.shape[:2], *summary.shape[1:])
+            g_features = features.float().reshape(*images.shape[:2], *features.shape[1:])
 
-        eq_cov_b, eq_cov_w, eq_im_means = calc_lidar_eq_pt1(g_features, batch['transforms'], batch['orig_shape'], images.shape[-2:], downsample)
-        lidar_eq_cov_b = lidar_eq_cov_b + eq_cov_b
-        lidar_eq_cov_w = lidar_eq_cov_w + eq_cov_w
-        lidar_eq_im_means.extend(eq_im_means)
+            # RankMe is only computed for the regular images
+            rank_me_embeddings.append(g_summary[:, 0])
+            lidar_embeddings.append(g_summary)
 
-        # TODO(mranzinger): Enable this to render composite images
-        # if i == 0 and rank == 0:
-        #     for k, (image, tx, orig_size) in enumerate(zip(images, batch['transforms'], batch['orig_shape'])):
-        #         visualize_augmented_images(image, tx, orig_size, f'_{k}')
-        num_tokens = features.shape[-2]
-        summary_dim = summary.shape[-1]
-        spatial_dim = features.shape[-1]
+            eq_cov_b, eq_cov_w, eq_im_means = calc_lidar_eq_pt1(g_features, batch['transforms'], batch['orig_shape'], images.shape[-2:], downsample)
+            lidar_eq_cov_b = lidar_eq_cov_b + eq_cov_b
+            lidar_eq_cov_w = lidar_eq_cov_w + eq_cov_w
+            lidar_eq_im_means.extend(eq_im_means)
+
+            # TODO(mranzinger): Enable this to render composite images
+            # if i == 0 and rank == 0:
+            #     for k, (image, tx, orig_size) in enumerate(zip(images, batch['transforms'], batch['orig_shape'])):
+            #         visualize_augmented_images(image, tx, orig_size, f'_{k}')
+            num_tokens = features.shape[-2]
+            summary_dim = summary.shape[-1]
+            spatial_dim = features.shape[-1]
 
         del batch
         del images
@@ -203,6 +212,7 @@ def main(rank: int = 0, world_size: int = 1):
     lidar = calc_lidar(lidar_embeddings)
     lidar_eq = calc_lidar_eq_pt2(*lidar_eq_info)
 
+    print(f'C: {rank_me_embeddings.shape[1]}')
     print(f'RankMe: {rank_me.item():.3f}')
     print(f'LiDAR: {lidar.item():.3f}')
     print(f'LiDAR-EQ: {lidar_eq.item():.3f}')
