@@ -27,6 +27,7 @@ For business inquiries, please visit our website and submit the form: [NVIDIA Re
 
 
 ## News/Release
+- [7.22.2024] 🔥 RADIOv2.5 ViT-B/16 and ViT-L/16 are released. For VLLM tasks, RADIOv2.5-B is as good or better than RADIOv2, and RADIOv2.5-L is much better! See [tech report](./RADIOv2.5_tech_report.md).
 - [4.30.2024] 🔥 README is updated with more metrics, Arxiv is updated with new results.
 - [3.21.2024] 🔥 RADIOv2.1 is released. Trained in bf16, improves metrics!
 - [2.26.2024]  AM-RADIO paper has been accepted to **CVPR 2024**
@@ -55,7 +56,8 @@ To load in the TorchHub, use the following command:
 
 ```Python
 import torch
-model_version="radio_v2.1" # for RADIO
+model_version="radio_v2.5-l" # for RADIOv2.5-L model (ViT-L/16)
+#model_version="radio_v2.5-b" # for RADIOv2.5-B model (ViT-B/16)
 #model_version="e-radio_v2" # for E-RADIO
 model = torch.hub.load('NVlabs/RADIO', 'radio_model', version=model_version, progress=True, skip_validation=True)
 model.cuda().eval()
@@ -82,8 +84,10 @@ with torch.autocast('cuda', dtype=torch.bfloat16):
     summary, spatial_features = model(cond_x)
 ```
 
-For the previous version, use `radio_v1` or `eradio_v1` for the E-RADIO model.
+For the previous version, use `radio_v1`, `radio_v2`, `radio_v2.1`, or `eradio_v1` for the E-RADIO model.
 
+<details>
+<summary> HuggingFace </summary>
 ### HuggingFace (HF)
 
 ```Python
@@ -105,18 +109,20 @@ pixel_values = pixel_values.cuda()
 summary, features = model(pixel_values)
 ```
 
+</details>
+
 Please see more details on usage in the [Quick Start](#quick-start---torchhub) section. Information on how to load Adapters (teacher specific heads) is also available in the Quick Start section.
 
-<details>
-<summary>Previously trained models</summary>
 
-| Name       | Architecture | Precision | Teachers                                 | Throughput | Zero Shot Top-1 | kNN Top-1 | ADE20k    | VOC       | GQA       | TextVQA   | VQAv2     | SAM-COCO  |
-|------------|--------------|-----------|------------------------------------------|------------|-----------------|-----------|-----------|-----------|-----------|-----------|-----------|-----------|
-| radio_v2.1 | ViT-H/16-CPE | BFloat16  | DFN CLIP; OpenAI CLIP; DINOv2; SAM       | 556        | **82.93**       | **86.06** | **51.34** | 84.71     | **63.01** | 56.32     | **79.28** | **76.58** |
-| radio_v2   | ViT-H/16-CPE | Float32   | DFN CLIP; OpenAI CLIP; DINOv2; SAM       | 556        | 82.71           | 85.92     | 51.33     |           | 62.78     | **56.37** | 79.00     | 76.21     |
-| radio_v1   | ViT-H/14-CPE | Float32   | DFN CLIP; OpenAI CLIP; DINOv2            | 556        | 82.73           | 85.29     | 50.32     | **85.17** | 61.43     | 54.92     | 77.88     |           |
-| eradio_v1  | E-RADIO      | Float32   | Meta CLIP; DINOv2                        | 3697       | 77.87           | 83.73     | 45.50     | 79.95     | 59.55     | 46.31     | 72.05     |           |
-</details>
+| Name         | Architecture | Precision | Teachers                                 | Throughput | Zero Shot Top-1 | kNN Top-1 | ADE20k    | VOC       | GQA       | TextVQA   | VQAv2     | SAM-COCO  |
+|--------------|--------------|-----------|------------------------------------------|------------|-----------------|-----------|-----------|-----------|-----------|-----------|-----------|-----------|
+| radio_v2.5-l | ViT-L/16-CPE | Float32   | DFN CLIP; SigLIP; DINOv2; SAM            |            | 81.01           | 84.68     | **51.47** | **85.49** | **64.13** | **61.93** | **81.02** | 75.06     |
+| radio_v2.5-b | ViT-B/16-CPE | Float32   | DFN CLIP; SigLIP; DINOv2; SAM            |            | 74.57           | 81.89     | 48.94     | 84.35     | 63.31     | 56.93     | 79.22     | 73.87     |
+| radio_v2.1   | ViT-H/16-CPE | BFloat16  | DFN CLIP; OpenAI CLIP; DINOv2; SAM       | 556        | **82.93**       | **86.06** | 51.34     | 84.71     | 63.01     | 56.32     | 79.28     | **76.58** |
+| radio_v2     | ViT-H/16-CPE | Float32   | DFN CLIP; OpenAI CLIP; DINOv2; SAM       | 556        | 82.71           | 85.92     | 51.33     |           | 62.78     | 56.37     | 79.00     | 76.21     |
+| radio_v1     | ViT-H/14-CPE | Float32   | DFN CLIP; OpenAI CLIP; DINOv2            | 556        | 82.73           | 85.29     | 50.32     | 85.17     | 61.43     | 54.92     | 77.88     |           |
+| eradio_v1    | E-RADIO      | Float32   | Meta CLIP; DINOv2                        | 3697       | 77.87           | 83.73     | 45.50     | 79.95     | 59.55     | 46.31     | 72.05     |           |
+
 
 ## Results
 
@@ -137,7 +143,9 @@ For summarization results we use the summarization token of the model. For Zero-
 | SAM-H/16               | 637        | 1024       | 12         | -                   | 22.12           |
 |------------------------|------------|------------|------------|---------------------|-----------------|
 | E-RADIO-L              | 391        | 512        | 468        | 80.73               | 83.89           |
-| RADIO-ViT-H/16         | 653        | 432        | 158        | 82.93               | **86.06**       |
+| RADIOv2.1              | 653        | 432        | 158        | 82.93               | **86.06**       |
+| RADIOv2.5-B            |            | 768        |            | 74.57               |                 |
+| RADIOv2.5-L            |            | 1024       |            | 81.01               |                 |
 
 
 ### Segmentation metrics:
@@ -158,27 +166,36 @@ For summarization results we use the summarization token of the model. For Zero-
 | SAM-H/16               | 28.08               | 34.34            | 77.18    |
 |------------------------|---------------------|------------------|----------|
 | E-RADIO-L              | 48.22               | 81.64            | 76.31    |
-| RADIO-ViT-H/16 (ours)  | **51.34**           | **84.71**        | 76.23    |
+| RADIOv2.1              | 51.34               | 84.71            | 76.23    |
+| RADIOv2.5-L            | 48.94               | 84.35            | 73.87    |
+| RADIOv2.5-L            | **51.47**           | **85.49**        | 75.06    |
 
 
 ### Vision-language model performance metrics in LLaVa 1.5:
 
 We replace the vision backbone and keep the same LLM and training recipe as in LLaVa 1.5:
 
-| Model               | GQA                 | POPE                 | TextVQA                 | VQAv2                 |
-|---------------------|---------------------|----------------------|-------------------------|-----------------------|
-| OpenCLIP-H/14       | 57.94               | 83.61                | 50.48                   | 72.24                 |
-| MetaCLIP-H/14       | 60.57               | 84.76                | 53.65                   | 75.71                 |
-| SigLIP-L/14         | 57.70               | 84.85                | 56.65                   | 71.94                 |
-| Intern-ViT-6B (224) | 60.18               | 84.02                | 52.45                   | 76.75                 |
-|               (448) | 61.19               | **87.23**            | **60.36**               | 78.83                 |
-| DFN CLIP-H/14       | 61.73               | 85.91                | 56.78                   | 78.78                 |
-| OpenAI CLIP-L/14    | 62.20               | 86.09                | 57.92                   | 78.49                 |
-| DINOv2-g/14-reg     | 61.88               | 85.62                | 47.18                   | 76.23                 |
-| SAM-H/16            | 49.92               | 81.76                | 43.91                   | 57.65                 |
-|---------------------|-------------------|--------------------|-----------------------|---------------------|
-| E-RADIO-L           | 61.70               | 85.07                | 51.47                   | 76.73                 |
-| RADIO-ViT-H/16 (ours)| **63.01**          | 86.20                | 56.32                   | **79.28**             |
+| Model                    | GQA                 | POPE                 | TextVQA                 | VQAv2                 |
+|--------------------------|---------------------|----------------------|-------------------------|-----------------------|
+| OpenCLIP-H/14            | 57.94               | 83.61                | 50.48                   | 72.24                 |
+| MetaCLIP-H/14            | 60.57               | 84.76                | 53.65                   | 75.71                 |
+| SigLIP-L/14              | 57.70               | 84.85                | 56.65                   | 71.94                 |
+| Intern-ViT-6B-1-2 (224)  | 60.18               | 84.02                | 52.45                   | 76.75                 |
+|                   (448)  | 61.19               | 87.23                | 60.36                   | 78.83                 |
+| DFN CLIP-H/14            | 61.73               | 85.91                | 56.78                   | 78.78                 |
+| OpenAI CLIP-L/14         | 62.20               | 86.09                | 57.92                   | 78.49                 |
+| DINOv2-g/14-reg          | 61.88               | 85.62                | 47.18                   | 76.23                 |
+| SAM-H/16                 | 49.92               | 81.76                | 43.91                   | 57.65                 |
+|--------------------------|---------------------|----------------------|-------------------------|-----------------------|
+| E-RADIO-L                | 61.70               | 85.07                | 51.47                   | 76.73                 |
+| RADIOv2.1   (432px)*     | 63.01               | 86.20                | 56.32                   | 79.28                 |
+| RADIOv2.5-B (768px)*     | 63.31               | 87.54                | 56.93                   | 79.22                 |
+| RADIOv2.5-L (768px)*     | **64.13**           | **87.68**            | **61.93**               | **81.02**             |
+
+*NOTE: We run RADIOv2.1 in 432px resolution and RADIOv2.5-X in 768px resolution. While this may seem unfair, it's actually because
+the mode switching problem in RADIOv2.1 prevents it from achieving strong results at resolutions above 432. Starting with RADIOv2.5,
+we have fixed mode switching, which has allowed us to increase the input resolution, resulting in remarkable improvements in metrics
+across the board. Details in [tech report](./RADIOv2.5_tech_report.md).
 
 ### Probing 3D Awareness
 
@@ -189,26 +206,25 @@ NAVI dataset. For each task we report the accuracy, averaged
 over all thresholds. RADIO preserves features of DINOv2 and
 performs much better than CLIP analogs.
 
-| Backbone              | Depth | Surface Normals | Multi-view corr. |
-|-----------------------|-------|-----------------|------------------|
-| DFN CLIP-H/14         | 52.5  | 23.0            | 20.3             |
-| OpenAI CLIP-L/14      | 53.7  | 25.3            | 20.7             |
-| DINOv2-g/14-reg       | **83.2**  | **59.6**            | 59.9     |
-| SAM-H/16              | 68.2  | 50.3            | 45.3             |
-|-----------------------|-------|-----------------|------------------|
-| RADIO-ViT-H/16 (ours) | 81.0  | 58.5            | **62.1**         |
+| Backbone              | Depth     | Surface Normals | Multi-view corr. |
+|-----------------------|-----------|-----------------|------------------|
+| DFN CLIP-H/14         | 52.5      | 23.0            | 20.3             |
+| OpenAI CLIP-L/14      | 53.7      | 25.3            | 20.7             |
+| DINOv2-g/14-reg       | 83.2      | 59.6            | 59.9             |
+| SAM-H/16              | 68.2      | 50.3            | 45.3             |
+|-----------------------|-----------|-----------------|------------------|
+| RADIOv2.1             | 81.0      | 58.5            | **62.1**         |
+| RADIOv2.5-B           | 83.0      | 57.5            | 56.1             |
+| RADIOv2.5-L           | **84.7**  | **60.1**        | 58.5
 
 
 ## Detailed usage
-
-<details>
-<summary>Torch hub</summary>
 
 ```Python
 import torch
 
 # If you don't supply the `version` parameter, the latest ViT version will be returned.
-model = torch.hub.load('NVlabs/RADIO', 'radio_model', version='radio_v2', progress=True)
+model = torch.hub.load('NVlabs/RADIO', 'radio_model', version='radio_v2.5-l', progress=True)
 model.cuda().eval()
 
 x = torch.rand(1, 3, 224, 224, device='cuda')
@@ -312,8 +328,6 @@ images = preprocessor(images)
 ...
 output = model(images)
 ```
-
-</details>
 
 <details>
 <summary>HuggingFace hub</summary>
