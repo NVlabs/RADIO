@@ -13,17 +13,20 @@ from timm.models import VisionTransformer
 from einops import rearrange
 
 DEFAULT_NUM_WINDOWED = 5
+DEFAULT_NUM_GLOBAL = 4
 
 
 class VitDetArgs:
     def __init__(self,
                  window_size: int,
                  num_summary_tokens: int,
-                 num_windowed: int = DEFAULT_NUM_WINDOWED,
+                 num_windowed: int = None,
+                 num_global: int = None,
     ):
         self.window_size = window_size
         self.num_summary_tokens = num_summary_tokens
         self.num_windowed = num_windowed
+        self.num_global = num_global
 
 
 def apply_vitdet_arch(model: VisionTransformer, args: VitDetArgs):
@@ -58,13 +61,18 @@ class ViTDetHook:
         blocks.register_forward_pre_hook(self._enter_blocks)
 
         is_global = True
-        period = args.num_windowed + 1
+        if args.num_windowed is not None:
+            period = args.num_windowed + 1
+        else:
+            num_global = args.num_global or DEFAULT_NUM_GLOBAL
+            period = max(len(blocks) // num_global, 1)
+
         for i, layer in enumerate(blocks[:-1]):
             ctr = i % period
             if ctr == 0:
                 layer.register_forward_pre_hook(self._to_windows)
                 is_global = False
-            elif ctr == args.num_windowed:
+            elif ctr == period - 1:
                 layer.register_forward_pre_hook(self._to_global)
                 is_global = True
 

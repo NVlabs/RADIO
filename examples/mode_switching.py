@@ -96,6 +96,7 @@ def main(rank: int = 0, world_size: int = 1):
     ])
 
     ds_builder = load_dataset_builder(args.dataset, trust_remote_code=True)
+    ds_builder.download_and_prepare()
     dataset = ds_builder.as_dataset(split=args.split)
     dataset = dataset.to_iterable_dataset(num_shards=world_size)
     dataset = split_dataset_by_node(dataset, rank=rank, world_size=world_size)
