@@ -161,6 +161,7 @@ def main(rank: int = 0, world_size: int = 1):
         rank_print('\tDone')
     rank_print('Done')
 
+    rank_print(f'Resolution: {args.resolution}')
     rank_print('Accuracy:')
     for k, acc in topks.items():
         acc = (acc / num_processed).item()
