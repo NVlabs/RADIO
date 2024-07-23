@@ -82,6 +82,54 @@ Not only do the RADIOv2.5 models allow classification at any resolution, they al
 
 There is an important implication to fixing mode switching, which is that it's now possible to ask for both the CLIP and SAM features for a given hi-res image simultaneously, and the results will be meaningful for both. Or, you might want to get the hi-res DINOv2 spatial features as well as the summary token (for classification) for the same image. This wasn't possible with the RADIOv2 model because it wasn't able to simultaneously represent CLIP (or DINO) and SAM at the same time, but is now fixed with the v2.5 models.
 
+Last but not least, we tested out the models at various resolutions within LLaVA 1.5 + Vicuna 7B:
+
+<div align="center">
+<table>
+    <tr>
+        <td rowspan="2" align="center">Model</td>
+        <td rowspan="2" align="center">Resolution</td>
+        <td colspan="2" align="center">GQA</td>
+        <td colspan="2" align="center">TextVQA*</td>
+        <td rowspan="2" align="center">POPE</td>
+        <td rowspan="2" align="center">VQAv2</td>
+    </tr>
+    <tr>
+        <td>Val</td>
+        <td>TestDev</td>
+        <td>Tokens</td>
+        <td>No Tokens</td>
+    </tr>
+    <tr>
+        <td>RADIOv2.1</td><td>432</td><td>71.70</td><td>63.01</td><td>56.32</td><td>42.03</td><td>86.20</td><td>79.28</td>
+    </tr>
+    <tr/>
+    <tr>
+        <td rowspan="3">RADIOv2.5-B</td><td>432</td><td>70.49</td><td>62.09</td><td>52.13</td><td>32.43</td><td>85.87</td><td>77.24</td>
+    </tr>
+    <tr>
+                                        <td>512</td><td>71.08</td><td>62.70</td><td>54.36</td><td>36.39</td><td>86.59</td><td>78.03</td>
+    </tr>
+    <tr>
+                                        <td>768</td><td>71.99</td><td>63.31</td><td>56.93</td><td>43.96</td><td>87.54</td><td>79.22</td>
+    </tr>
+    <tr/>
+    <tr>
+        <td rowspan="3">RADIOv2.5-L</td><td>432</td><td>71.57</td><td>62.89</td><td>56.71</td><td>42.34</td><td>86.13</td><td>79.44</td>
+    </tr>
+    <tr>
+                                        <td>512</td><td>72.04</td><td>63.58</td><td>58.52</td><td>46.50</td><td>86.66</td><td>80.04</td>
+    </tr>
+    <tr>
+        <td>768</td><td><b>72.91</b></td><td><b>64.13</b></td><td><b>61.93</b></td><td><b>53.95</b></td><td><b>87.68</b></td><td><b>81.02</b></td>
+    </tr>
+</table>
+
+*By default, TextVQA adds detected OCR tokens into the context of the LLM. Because we're interested in how well the vision encoder itself is able to represent text, we study TextVQA both with (Tokens) and without (No Tokens) these tokens.
+
+</div>
+
+
 ### SigLIP
 
 SigLIP is an extraordinary ViT-L model, and we've added it as a teacher in the latest release. If you'd like to use RADIO's adaptor for it, you can get it using the `'siglip'` adaptor name. For example, in the `examples/zero_shot_imagenet.py` script, you'd pass `--adaptor-name siglip` as an argument to use SigLIP instead of the default DFN CLIP.
