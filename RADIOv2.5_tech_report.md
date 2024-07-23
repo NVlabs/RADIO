@@ -107,6 +107,8 @@ As can be seen, the classification results using the SigLIP head are slightly wo
 
 ### Videos!
 
+While RADIOv2 may have a visually pleasing 1024px resolution video, you can clearly see how it switches modes between low and high resolution. All models exhibit strong temporal stability.
+
 <details>
 <summary>RADIOv2</summary>
 
