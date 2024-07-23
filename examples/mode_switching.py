@@ -118,22 +118,6 @@ def main(rank: int = 0, world_size: int = 1):
 
     bins = dict()
 
-    # dino_features = []
-
-    # for i, sample in tqdm(enumerate(dataset), desc='DINOv2 Features', total=args.n):
-    #     if i == args.n:
-    #         break
-    #     image = sample['image'].unsqueeze(0).cuda()
-    #     input_dino = dinov2_preprocessor(image)
-    #     _, features = dinov2(input_dino)
-
-    #     ncol = int(round(math.sqrt(features.shape[1])))
-    #     features = rearrange(features, 'b (h w) d -> b d h w', h=ncol, w=ncol)
-
-    #     dino_features.append(features)
-
-    # dino_features = torch.cat(dino_features)
-
     for res in tqdm(resolutions, desc="Resolutions", disable=rank > 0):
         dv2_res = res * 14 // 16
         update_resolution(transform_dv2, dv2_res)

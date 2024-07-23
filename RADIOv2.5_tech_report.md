@@ -4,6 +4,15 @@ This is a tech report for the early-access release of the RADIOv2.5 model family
 
 On 7.22.24 we are releasing ViT-B/16 and ViT-L/16 pretrained models. Under the hood, we've made a bunch of improvements to the training algorithms to produce these models. Fortunately, the API remains exactly the same!
 
+## Usage
+
+```Python
+torch.hub.load('NVlabs/RADIO', 'radio_model',
+    version='radio_v2.5-l',  # Can also be 'radio_v2.5-b' for the ViT-B version
+    force_reload=True,  # Make sure you set this to True the first time you're requesting either of these two models
+)
+```
+
 ## What's New?
 
 ### Smaller Models
@@ -20,7 +29,7 @@ This would show up in strange ways, for example, trying to do zero shot classifi
     <img src="assets/radio_v2.5/mode_switching_dv2.png", width="512"/>
 </div>
 
-Similar to the paper, we plot the MSE between the DINOv2-g-reg features and the RADIO model at various resolutions. While RADIOv2 (owing to the ViT-H) is able to achieve at lower MSE at lower resolutions, you can see how at 720px, there's a huge spike in error and never recovers. This is how we quantified the mode switch. We can also visualize this phenomenon:
+Similar to the paper, we plot the MSE between the DINOv2-g-reg features and the RADIO model at various resolutions. While RADIOv2 (owing to the ViT-H) is able to achieve lower MSE at lower resolutions, you can see how at 720px, there's a huge spike in error and never recovers. This is how we quantified the mode switch. We can also visualize this phenomenon:
 
 <div align="center">
     <img src="assets/radio_v2.5/mode_switching/radio-v2.1_vis-24.jpg", width="512"/>
@@ -28,7 +37,7 @@ Similar to the paper, we plot the MSE between the DINOv2-g-reg features and the 
     <img src="assets/radio_v2.5/mode_switching/radio-v2.5-l_vis-24.jpg", width="512"/>
 </div>
 
-You can see how the 720px RADIOv2 image abruptly changes representions, whereas DINOv2 and the RADIOv2.5 models remain consistent and instead produce increasingly fine-grained details. We can also see how RADIOv2 is working in reverse with the SAM head, where the low-resolution inputs don't produce features that are SAM-like at all. At 1024px, RADIOv2 starts to produce reasonable SAM features. On the contrary, RADIOv2.5-L produces SAM-like features at any resolution, and arguably does a better job of extrapolating to 2048px resolution.
+You can see how the 720px RADIOv2 (left) image abruptly changes representions, whereas DINOv2 and the RADIOv2.5 models (middle, right) remain consistent and instead produce increasingly fine-grained details. We can also see how RADIOv2 is working in reverse with the SAM head, where the low-resolution inputs don't produce features that are SAM-like at all. At 1024px, RADIOv2 starts to produce reasonable SAM features. On the contrary, RADIOv2.5-L produces SAM-like features at any resolution, and arguably does a better job of extrapolating to 2048px resolution.
 
 <div align="center">
     <img src="assets/radio_v2.5/sam_mode_switching/radio-v2_vis-23.jpg", width="768"/>
@@ -37,7 +46,13 @@ You can see how the 720px RADIOv2 image abruptly changes representions, whereas 
 
 Similarly to mode switching being directly observable in the spatial features, it was also causing issues with the summary features, which can be seen looking at zero shot classification:
 
-<div align="center">
+<div align="center" style="display: flex;">
+
+<div align="right" style="flex: 1; padding-right: 20px;">
+    <img src="assets/radio_v2.5/classification_mode_switch.jpg", width="512"/>
+</div>
+
+<div align="left" style="flex: 1;">
 
 | Resolution       | RADIOv2.1 | RADIOv2.5-B | RADIOv2.5-L |
 |------------------|-----------|-------------|-------------|
@@ -57,7 +72,77 @@ Similarly to mode switching being directly observable in the spatial features, i
 
 </div>
 
+</div>
+
 
 Not only do the RADIOv2.5 models allow classification at any resolution, they also allow for using ViTDet mode with only a small drop in accuracy.
 
 There is an important implication to fixing mode switching, which is that it's now possible to ask for both the CLIP and SAM features for a given hi-res image simultaneously, and the results will be meaningful for both. Or, you might want to get the hi-res DINOv2 spatial features as well as the summary token (for classification) for the same image. This wasn't possible with the RADIOv2 model because it wasn't able to simultaneously represent CLIP (or DINO) and SAM at the same time, but is now fixed with the v2.5 models.
+
+### SigLIP
+
+SigLIP is an extraordinary ViT-L model, and we've added it as a teacher in the latest release. If you'd like to use RADIO's adaptor for it, you can get it using the `'siglip'` adaptor name. For example, in the `examples/zero_shot_imagenet.py` script, you'd pass `--adaptor-name siglip` as an argument to use SigLIP instead of the default DFN CLIP.
+
+The specific SigLIP version we're using is `ViT-SO400M-14-SigLIP-384` found in the [OpenCLIP](https://github.com/mlfoundations/open_clip/blob/main/docs/openclip_results.csv#L5) library.
+
+<div align="center">
+
+| Resolution | RADIOv2.5-B | RADIOv2.5-L |
+|------------|-------------|-------------|
+| 224        | 58.670      | 72.492      |
+| 256        | 65.190      | 75.962      |
+| 336        | 69.110      | 77.830      |
+| 432        | 70.276      | 78.582      |
+| 512        | 70.694      | 78.828      |
+| 768        | 71.102      | 78.930      |
+| 1024       | 70.900      |             |
+
+</div>
+
+As can be seen, the classification results using the SigLIP head are slightly worse than those of DFN CLIP, so we'd suggest defaulting to DFN CLIP unless you're specifically looking for compatibility.
+
+
+### Videos!
+
+<details>
+<summary>RADIOv2</summary>
+
+#### RADIOv2 512px
+
+<video src="https://youtu.be/ABlHxD_edUM"></video>
+
+[![RADIOv2 512px](https://img.youtube.com/vi/ABlHxD_edUM/maxresdefault.jpg)](https://youtu.be/ABlHxD_edUM)
+
+#### RADIOv2 1024px
+
+<video src="https://youtu.be/I51NMXI1ZA4"></video>
+
+[![RADIOv2 1024px](https://img.youtube.com/vi/I51NMXI1ZA4/maxresdefault.jpg)](https://youtu.be/I51NMXI1ZA4)
+
+</details>
+
+<details>
+<summary>RADIOv2.5-B</summary>
+
+#### RADIOv2.5-B 512px
+
+[![RADIOv2.5-B 512px](https://img.youtube.com/vi/hYOEi4mZK7Q/maxresdefault.jpg)](https://youtu.be/hYOEi4mZK7Q)
+
+#### RADIOv2.5-B 1024px
+
+[![RADIOv2.5-B 1024px](https://img.youtube.com/vi/zYpywEbJRJA/maxresdefault.jpg)](https://youtu.be/zYpywEbJRJA)
+
+</details>
+
+<details>
+<summary>RADIOv2.5-L</summary>
+
+#### RADIOv2.5-L 512px
+
+[![RADIOv2.5-L 512px](https://img.youtube.com/vi/sRHmLI4cInQ/maxresdefault.jpg)](https://youtu.be/sRHmLI4cInQ)
+
+#### RADIOv2.5-L 1024px
+
+[![RADIOv2.5-L 1024px](https://img.youtube.com/vi/Mqe06wrnQfE/maxresdefault.jpg)](https://youtu.be/Mqe06wrnQfE)
+
+</details>
