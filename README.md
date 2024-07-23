@@ -96,7 +96,8 @@ from PIL import Image
 from transformers import AutoModel, CLIPImageProcessor
 
 # hf_repo = "nvidia/E-RADIO" # For E-RADIO.
-hf_repo = "nvidia/RADIO" # For RADIO.
+#hf_repo = "nvidia/RADIO-B" # For RADIO-B.
+hf_repo = "nvidia/RADIO-L" # For RADIO-L.
 
 image_processor = CLIPImageProcessor.from_pretrained(hf_repo)
 model = AutoModel.from_pretrained(hf_repo, trust_remote_code=True)
