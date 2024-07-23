@@ -70,7 +70,7 @@ def main(rank: int = 0, world_size: int = 1):
                         help="Path to the Torchhub repo", default="NVlabs/RADIO"
     )
     parser.add_argument('--side-by-side', default=False, action='store_true',
-                        help='Render the original frame and the PCA frame side-by-size')
+                        help='Render the original frame and the PCA frame side-by-side')
     parser.add_argument('--audio', default=False, action='store_true',
                         help='Encode the audio in the output video')
     parser.add_argument('--video-codec', default='libx264', type=str, help='The video codec to use')

@@ -72,7 +72,7 @@ def main(rank: int = 0, world_size: int = 1):
     parser.add_argument('-d', '--dataset', default='imagenet-1k',
                         help='The name of the dataset to classify'
     )
-    parser.add_argument('--split', default='validation',
+    parser.add_argument('--split', default='train',
                         help='The dataset split to use.'
     )
     parser.add_argument('-n', default=128, type=int, help='The number of samples to load')
@@ -141,14 +141,20 @@ def main(rank: int = 0, world_size: int = 1):
                                        pad_mean=preprocessor.norm_mean if isinstance(preprocessor, InputConditioner) else None,)
 
     if not os.path.isdir(args.dataset):
+        try:
+            ds_builder = load_dataset_builder(args.dataset, trust_remote_code=True)
+        except:
+            ds_builder = load_dataset_builder("imagefolder", data_dir=args.dataset)
+        ds_builder.download_and_prepare()
         ds_builder = load_dataset_builder(args.dataset, trust_remote_code=True)
+        dataset = ds_builder.as_dataset(split=args.split)
+        dataset = dataset.to_iterable_dataset(num_shards=world_size * max(1, args.workers))
+        dataset = split_dataset_by_node(dataset, rank=rank, world_size=world_size)
+        dataset = dataset.map(lambda ex: dict(image=transform(ex['image']), label=torch.as_tensor(ex['label'], dtype=torch.int64)))
+        rank_print(f'Description: {ds_builder.info.description}')
     else:
-        ds_builder = load_dataset_builder("imagefolder", data_dir=args.dataset)
-    dataset = ds_builder.as_dataset(split=args.split)
-    dataset = dataset.to_iterable_dataset(num_shards=world_size * max(1, args.workers))
-    dataset = split_dataset_by_node(dataset, rank=rank, world_size=world_size)
-    dataset = dataset.map(lambda ex: dict(image=transform(ex['image']), label=torch.as_tensor(0, dtype=torch.int64)))
-    rank_print(f'Description: {ds_builder.info.description}')
+        dataset = ImageFolder(args.dataset, transform=transform)
+        dataset.samples.sort(key=lambda s: s[0])
 
     loader = DataLoader(dataset, batch_size=args.batch_size, shuffle=False,
                         num_workers=args.workers, collate_fn=partial(collate, group=False),
@@ -236,7 +242,9 @@ def main(rank: int = 0, world_size: int = 1):
                     if args.adaptor_name is not None:
                         annotations.append(args.adaptor_name)
                 for annotation, img in zip(annotations, colored):
-                    cv2.imwrite(f'{dirs["viz"]}/vis_{ctr}_{annotation}.jpg', img * 255)
+                    rdir = f'{dirs["viz"]}/{annotation}'
+                    os.makedirs(rdir, exist_ok=True)
+                    cv2.imwrite(f'{rdir}/vis_{ctr}.jpg', img * 255)
 
                 # Create an image grid with the original image and the colored feature maps.
                 grid_image = create_image_grid_with_annotations(

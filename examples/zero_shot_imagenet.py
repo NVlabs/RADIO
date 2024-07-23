@@ -120,7 +120,7 @@ def main(rank: int = 0, world_size: int = 1):
     rank_print('Building Zero Shot Classifier...')
     adaptor = model.adaptors[args.adaptor_name] if hasattr(model, 'adaptors') else model
     classifier = get_clip_classifier(
-        model=adaptor, tokenizer=adaptor.tokenizer, model_key=args.model_version, device=device,
+        model=adaptor, tokenizer=adaptor.tokenizer, model_key=args.model_version, adaptor_key=args.adaptor_name, device=device,
     ).float()
     rank_print('Done')
 
@@ -181,7 +181,8 @@ def accuracy(output, target, topk=(1,)):
 
 @torch.no_grad()
 def get_clip_classifier(model, tokenizer,
-                        model_key,
+                        model_key: str,
+                        adaptor_key: str,
                         device: torch.device,
                         dist_group = None,
                         normalize_intermediate: bool = True,
@@ -205,7 +206,7 @@ def get_clip_classifier(model, tokenizer,
     temp_flat = '_'.join([template('') for template in templates])
     cls_flat = '_'.join(classnames)
     norm_key = "_norm" if normalize_intermediate else ""
-    key_str = (model_key + temp_flat + cls_flat + norm_key).encode('utf-8')
+    key_str = (model_key + adaptor_key + temp_flat + cls_flat + norm_key).encode('utf-8')
 
     cache_hash = sha256(key_str).hexdigest()[:16]
 

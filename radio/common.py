@@ -23,6 +23,21 @@ class RadioResource:
 
 
 RESOURCE_MAP = {
+    # RADIOv2.5
+    "radio_v2.5-b": RadioResource(
+        "https://huggingface.co/nvidia/RADIO/resolve/main/radio-v2.5-b_half.pth.tar?download=true",
+        patch_size=16,
+        max_resolution=2048,
+        preferred_resolution=(768, 768),
+        vitdet_num_global=4,
+    ),
+    "radio_v2.5-l": RadioResource(
+        "https://huggingface.co/nvidia/RADIO/resolve/main/radio-v2.5-l_half.pth.tar?download=true",
+        patch_size=16,
+        max_resolution=2048,
+        preferred_resolution=(768, 768),
+        vitdet_num_global=4,
+    ),
     # RADIO
     "radio_v2.1": RadioResource(
         "https://huggingface.co/nvidia/RADIO/resolve/main/radio_v2.1_bf16.pth.tar?download=true",
@@ -53,4 +68,4 @@ RESOURCE_MAP = {
     ),
 }
 
-DEFAULT_VERSION = "radio_v2.1"
+DEFAULT_VERSION = "radio_v2.5-l"
