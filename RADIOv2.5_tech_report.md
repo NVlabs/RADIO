@@ -82,6 +82,8 @@ Not only do the RADIOv2.5 models allow classification at any resolution, they al
 
 There is an important implication to fixing mode switching, which is that it's now possible to ask for both the CLIP and SAM features for a given hi-res image simultaneously, and the results will be meaningful for both. Or, you might want to get the hi-res DINOv2 spatial features as well as the summary token (for classification) for the same image. This wasn't possible with the RADIOv2 model because it wasn't able to simultaneously represent CLIP (or DINO) and SAM at the same time, but is now fixed with the v2.5 models.
 
+#### LLaVA 1.5 + Vicuna 7B
+
 Last but not least, we tested out the models at various resolutions within LLaVA 1.5 + Vicuna 7B:
 
 <div align="center">
