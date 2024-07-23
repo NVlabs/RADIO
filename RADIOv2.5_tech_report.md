@@ -64,6 +64,9 @@ Similarly to mode switching being directly observable in the spatial features, i
 | 768              | 1.292     | 74.386      | 80.804      |
 | 1024             | 0.204     | 74.280      | 80.886      |
 
+</div>
+
+<div>
 
 | Resolution       | RADIOv2.1 | RADIOv2.5-B | RADIOv2.5-L |
 |------------------|-----------|-------------|-------------|
@@ -109,15 +112,11 @@ As can be seen, the classification results using the SigLIP head are slightly wo
 
 #### RADIOv2 512px
 
-<video src="https://youtu.be/ABlHxD_edUM"></video>
-
-[![RADIOv2 512px](https://img.youtube.com/vi/ABlHxD_edUM/maxresdefault.jpg)](https://youtu.be/ABlHxD_edUM)
+https://github.com/user-attachments/assets/fbde8f2d-0f89-499a-b460-62810595ba55
 
 #### RADIOv2 1024px
 
-<video src="https://youtu.be/I51NMXI1ZA4"></video>
-
-[![RADIOv2 1024px](https://img.youtube.com/vi/I51NMXI1ZA4/maxresdefault.jpg)](https://youtu.be/I51NMXI1ZA4)
+https://github.com/user-attachments/assets/4abdd040-c837-4e7a-87ac-e9bc7d40751b
 
 </details>
 
@@ -126,11 +125,11 @@ As can be seen, the classification results using the SigLIP head are slightly wo
 
 #### RADIOv2.5-B 512px
 
-[![RADIOv2.5-B 512px](https://img.youtube.com/vi/hYOEi4mZK7Q/maxresdefault.jpg)](https://youtu.be/hYOEi4mZK7Q)
+https://github.com/user-attachments/assets/c9871a93-7260-4386-b334-12bf7790a8e4
 
 #### RADIOv2.5-B 1024px
 
-[![RADIOv2.5-B 1024px](https://img.youtube.com/vi/zYpywEbJRJA/maxresdefault.jpg)](https://youtu.be/zYpywEbJRJA)
+https://github.com/user-attachments/assets/14c415d4-0962-4937-a087-bf01e1511881
 
 </details>
 
@@ -139,10 +138,10 @@ As can be seen, the classification results using the SigLIP head are slightly wo
 
 #### RADIOv2.5-L 512px
 
-[![RADIOv2.5-L 512px](https://img.youtube.com/vi/sRHmLI4cInQ/maxresdefault.jpg)](https://youtu.be/sRHmLI4cInQ)
+https://github.com/user-attachments/assets/024a23ca-ec27-44dc-8cb2-47bdd1b15635
 
 #### RADIOv2.5-L 1024px
 
-[![RADIOv2.5-L 1024px](https://img.youtube.com/vi/Mqe06wrnQfE/maxresdefault.jpg)](https://youtu.be/Mqe06wrnQfE)
+https://github.com/user-attachments/assets/1dd4e2ef-a47a-4121-8462-d90e087fdab6
 
 </details>
