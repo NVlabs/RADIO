@@ -98,7 +98,7 @@ The specific SigLIP version we're using is `ViT-SO400M-14-SigLIP-384` found in t
 | 432        | 70.276      | 78.582      |
 | 512        | 70.694      | 78.828      |
 | 768        | 71.102      | 78.930      |
-| 1024       | 70.900      |             |
+| 1024       | 70.900      | 78.922      |
 
 </div>
 
