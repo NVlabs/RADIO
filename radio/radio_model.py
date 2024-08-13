@@ -19,6 +19,7 @@ from . import extra_timm_models
 from .adaptor_base import AdaptorBase, RadioOutput, AdaptorInput
 from . import eradio_model
 from .enable_spectral_reparam import configure_spectral_reparam_from_args
+from .feature_normalizer import FeatureNormalizer
 
 
 class Resolution(NamedTuple):
@@ -37,6 +38,7 @@ class RADIOModel(nn.Module):
         summary_idxs: Optional[torch.Tensor] = None,
         window_size: int = None,
         adaptors: Dict[str, AdaptorBase] = None,
+        feature_normalizer: Optional[FeatureNormalizer] = None,
     ):
         super().__init__()
 
@@ -55,6 +57,10 @@ class RADIOModel(nn.Module):
         adaptors = adaptors or dict()
         self.adaptors = nn.ModuleDict(adaptors)
 
+        if feature_normalizer is None:
+            feature_normalizer = nn.Identity()
+        self.feature_normalizer = feature_normalizer
+
     @property
     def num_summary_tokens(self) -> int:
         patch_gen = getattr(self.model, "patch_generator", None)
@@ -68,6 +74,8 @@ class RADIOModel(nn.Module):
     def patch_size(self) -> int:
         if self._patch_size is not None:
             return self._patch_size
+        if hasattr(self.model, "patch_size"):
+            return self.model.patch_size
         patch_gen = getattr(self.model, "patch_generator", None)
         if patch_gen is not None:
             return patch_gen.patch_size
@@ -150,6 +158,9 @@ class RADIOModel(nn.Module):
             raise ValueError("Unsupported model type")
 
         all_feat = all_feat.float()
+
+        all_feat = self.feature_normalizer(all_feat)
+
         ret = RadioOutput(bb_summary.flatten(1), all_feat).to(torch.float32)
         if self.adaptors:
             ret = dict(backbone=ret)
@@ -199,6 +210,9 @@ class RADIOModel(nn.Module):
             intermediates_only=intermediates_only,
             aggregation=aggregation,
         )
+
+        outputs = [(summary, self.feature_normalizer(features)) for summary, features in outputs]
+
         if return_prefix_tokens:
             radio_outputs = [RadioOutput(summary, features) for (summary, features) in outputs]
         else:

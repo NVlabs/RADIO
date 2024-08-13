@@ -66,6 +66,7 @@ def main(rank: int = 0, world_size: int = 1):
                         help='The dataset split to use.'
     )
     parser.add_argument('-n', default=100, type=int, help='The number of samples to load')
+    parser.add_argument('--name', default='', type=str)
 
     args, _ = parser.parse_known_args()
 
@@ -118,7 +119,7 @@ def main(rank: int = 0, world_size: int = 1):
 
     bins = dict()
 
-    for res in tqdm(resolutions, desc="Resolutions", disable=rank > 0):
+    for res in tqdm(resolutions, desc="Resolutions", disable=rank > 0, position=0, leave=True):
         dv2_res = res * 14 // 16
         update_resolution(transform_dv2, dv2_res)
 
@@ -127,7 +128,10 @@ def main(rank: int = 0, world_size: int = 1):
         dino_features = []
         res_features = []
 
-        for i, sample in tqdm(enumerate(dataset), total=args.n, leave=None, desc=f'{res}', disable=rank > 0):
+        cov_bb: torch.Tensor = None
+        cov_bb_ct = 0
+
+        for i, sample in tqdm(enumerate(dataset), total=args.n, disable=rank > 0, desc=f'{res}', position=1, leave=True):
             if i == args.n:
                 break
 
@@ -142,7 +146,16 @@ def main(rank: int = 0, world_size: int = 1):
             image = transform(sample['image'])
             image = image.unsqueeze(0).cuda()
             input_radio = radio_preprocessor(image)
-            _, features = radio(input_radio)['dino_v2']
+            r_out = radio(input_radio)
+            _, bb_feat = r_out['backbone']
+            _, features = r_out['dino_v2']
+
+            cov_curr = bb_feat.flatten(0, 1)
+            cov_bb_ct += cov_curr.shape[0]
+            if cov_bb is None:
+                cov_bb = cov_curr.T @ cov_curr
+            else:
+                cov_bb.addmm_(cov_curr.T, cov_curr)
 
             ncol = int(round(math.sqrt(features.shape[1])))
             features = rearrange(features, 'b (h w) d -> b d h w', h=ncol, w=ncol)
@@ -150,15 +163,27 @@ def main(rank: int = 0, world_size: int = 1):
             dino_features.append(dv2_features)
             res_features.append(features)
 
+            del r_out
+            del bb_feat
+            del features
+
         dino_features = torch.cat(dino_features)
         res_features = torch.cat(res_features)
+
+        cov_bb /= cov_bb_ct - 1
+
+        # if rank == 0:
+        #     print(f'Backbone Feature Variance:\n{cov_bb.diag()}')
 
         res_matched = F.interpolate(res_features, size=dino_features.shape[-2:], mode='bilinear', align_corners=True)
 
         cos_error = 1 - F.cosine_similarity(res_matched, dino_features, dim=1).mean()
         mse_error = F.mse_loss(res_matched, dino_features, reduction='mean')
 
-        bins[res] = (cos_error.item(), mse_error.item())
+        stud_variance = res_features.var()
+        dino_variance = dino_features.var()
+
+        bins[res] = (cos_error.item(), mse_error.item(), stud_variance.item(), dino_variance.item())
 
     if dist.is_initialized():
         all_bins = [None for _ in range(world_size)]
@@ -170,10 +195,18 @@ def main(rank: int = 0, world_size: int = 1):
         new_bins.sort(key=lambda t: t[0])
         bins = {k: v for k, v in new_bins}
 
-    with open('mode_switching_results.csv', 'w') as fd:
-        fd.write('Resolution,Cos Error, MSE Error\n')
-        for res, (cos_error, mse_error) in bins.items():
-            fd.write(f'{res},{cos_error:.4f},{mse_error:.4f}\n')
+    if rank > 0:
+        return
+
+    if not args.name and not os.path.isfile(args.version):
+        args.name = args.version
+    suffix = f'_{args.name}' if args.name else ''
+
+    with open(f'mode_switching_results{suffix}.csv', 'w') as fd:
+        fd.write('Resolution,Cos Error,MSE Error,Pred Variance,DINO Variance\n')
+        for res, t in bins.items():
+            parts = ','.join(f'{v:.4f}' for v in t)
+            fd.write(f'{res},{parts}\n')
 
 
 if __name__ == '__main__':

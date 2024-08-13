@@ -94,6 +94,7 @@ def main(rank: int = 0, world_size: int = 1):
     rank_print('Done')
 
     tmp = torch.empty(1, 3, args.resolution, args.resolution, dtype=torch.float32, device=device)
+    tmp = preprocessor(tmp)
     _, tmp_features = model(tmp)
     downsample = int(round(math.sqrt(args.resolution ** 2 / tmp_features.shape[1])))
 
@@ -119,6 +120,7 @@ def main(rank: int = 0, world_size: int = 1):
     loader = DataLoader(dataset, batch_size=args.batch_size, pin_memory=True, num_workers=args.workers)
 
     rank_me_embeddings = []
+    rank_me_features = []
     lidar_embeddings = []
 
     lidar_eq_cov_b = 0
@@ -129,7 +131,7 @@ def main(rank: int = 0, world_size: int = 1):
     summary_dim = 0
     spatial_dim = 0
 
-    for i, batch in tqdm(enumerate(loader), total=n_iter, desc='Processing', disable=rank > 0, position=0):
+    for i, batch in tqdm(enumerate(loader), total=n_iter, desc='Processing', disable=rank > 0, position=0, leave=False):
         if i == n_iter:
             break
 
@@ -145,7 +147,7 @@ def main(rank: int = 0, world_size: int = 1):
         summary, features = [], []
         with torch.autocast(device_type=device.type, dtype=torch.bfloat16):
             num_steps = int(math.ceil(flat_images.shape[0] / args.batch_size))
-            for c in tqdm(range(0, flat_images.shape[0], args.batch_size), total=num_steps, desc='Model Inference', disable=rank > 0, position=1):
+            for c in tqdm(range(0, flat_images.shape[0], args.batch_size), total=num_steps, desc='Model Inference', disable=rank > 0, position=1, leave=False):
                 chunk = preprocessor(flat_images[c:c+args.batch_size])
                 c_summary, c_features = model(chunk)
                 summary.append(c_summary)
@@ -154,19 +156,21 @@ def main(rank: int = 0, world_size: int = 1):
             summary = torch.cat(summary)
             features = torch.cat(features)
 
-        for _ in tqdm(range(1), desc='LiDAR', disable=rank > 0, position=1):
+        # for _ in tqdm(range(1), desc='LiDAR', disable=rank > 0, position=2):
+        if True:
             # Unroll the batch and variant dimensions
             g_summary = summary.float().reshape(*images.shape[:2], *summary.shape[1:])
             g_features = features.float().reshape(*images.shape[:2], *features.shape[1:])
 
             # RankMe is only computed for the regular images
             rank_me_embeddings.append(g_summary[:, 0])
+            rank_me_features.append(g_features[:, 0].flatten(0, 1))
             lidar_embeddings.append(g_summary)
 
-            eq_cov_b, eq_cov_w, eq_im_means = calc_lidar_eq_pt1(g_features, batch['transforms'], batch['orig_shape'], images.shape[-2:], downsample)
-            lidar_eq_cov_b = lidar_eq_cov_b + eq_cov_b
-            lidar_eq_cov_w = lidar_eq_cov_w + eq_cov_w
-            lidar_eq_im_means.extend(eq_im_means)
+            # eq_cov_b, eq_cov_w, eq_im_means = calc_lidar_eq_pt1(g_features, batch['transforms'], batch['orig_shape'], images.shape[-2:], downsample)
+            # lidar_eq_cov_b = lidar_eq_cov_b + eq_cov_b
+            # lidar_eq_cov_w = lidar_eq_cov_w + eq_cov_w
+            # lidar_eq_im_means.extend(eq_im_means)
 
             # TODO(mranzinger): Enable this to render composite images
             # if i == 0 and rank == 0:
@@ -183,8 +187,8 @@ def main(rank: int = 0, world_size: int = 1):
         del features
         del g_summary
         del g_features
-        del eq_cov_b
-        del eq_cov_w
+        # del eq_cov_b
+        # del eq_cov_w
 
     del model
     gc.collect()
@@ -194,28 +198,31 @@ def main(rank: int = 0, world_size: int = 1):
         return gather_cat(torch.cat(t), rank, world_size, device)
 
     rank_me_embeddings = _gather_cat(rank_me_embeddings)
+    rank_me_features = _gather_cat(rank_me_features)
     lidar_embeddings = _gather_cat(lidar_embeddings)
 
-    lidar_eq_info = [lidar_eq_cov_b.div_(n_iter), lidar_eq_cov_w.div_(n_iter)]
+    # lidar_eq_info = [lidar_eq_cov_b.div_(n_iter), lidar_eq_cov_w.div_(n_iter)]
 
-    if dist.is_initialized():
-        for t in lidar_eq_info:
-            if torch.is_tensor(t):
-                dist.reduce(t, dst=0, op=dist.ReduceOp.AVG)
+    # if dist.is_initialized():
+    #     for t in lidar_eq_info:
+    #         if torch.is_tensor(t):
+    #             dist.reduce(t, dst=0, op=dist.ReduceOp.AVG)
 
-    lidar_eq_info.append(_gather_cat(lidar_eq_im_means))
+    # lidar_eq_info.append(_gather_cat(lidar_eq_im_means))
 
     if rank > 0:
         return
 
     rank_me = calc_rank_me(rank_me_embeddings)
+    rank_me_features = calc_rank_me(rank_me_features)
     lidar = calc_lidar(lidar_embeddings)
-    lidar_eq = calc_lidar_eq_pt2(*lidar_eq_info)
+    # lidar_eq = calc_lidar_eq_pt2(*lidar_eq_info)
 
     print(f'C: {rank_me_embeddings.shape[1]}')
     print(f'RankMe: {rank_me.item():.3f}')
+    print(f'RankMeFeat: {rank_me_features.item():.3f}')
     print(f'LiDAR: {lidar.item():.3f}')
-    print(f'LiDAR-EQ: {lidar_eq.item():.3f}')
+    # print(f'LiDAR-EQ: {lidar_eq.item():.3f}')
 
     if args.log_wandb and rank == 0:
         if wandb is None:
@@ -240,8 +247,9 @@ def main(rank: int = 0, world_size: int = 1):
         wandb.summary['SummaryDim'] = summary_dim
         wandb.summary['SpatialDim'] = spatial_dim
         wandb.summary['RankMe'] = rank_me.item()
+        wandb.summary['RankMeFeat'] = rank_me_features.item()
         wandb.summary['LiDAR'] = lidar.item()
-        wandb.summary['LiDAR-EQ'] = lidar_eq.item()
+        # wandb.summary['LiDAR-EQ'] = lidar_eq.item()
 
 
 def album_aug(tx, image, bds) -> Tuple[torch.Tensor, np.ndarray]:

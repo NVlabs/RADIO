@@ -20,6 +20,8 @@ from timm.models import clean_state_dict
 from radio.adaptor_registry import adaptor_registry
 from radio.common import DEFAULT_VERSION, RadioResource, RESOURCE_MAP
 from radio.enable_spectral_reparam import disable_spectral_reparam
+from radio import extra_models
+from radio.feature_normalizer import FeatureNormalizer
 from radio.radio_model import RADIOModel, create_model_from_args
 from radio.input_conditioner import get_default_conditioner
 from radio.vitdet import apply_vitdet_arch, VitDetArgs
@@ -120,6 +122,12 @@ def radio_model(
         adaptor.head_idx = tidx
         adaptors[adaptor_name] = adaptor
 
+    feat_norm_sd = get_prefix_state_dict(state_dict, '_feature_normalizer.')
+    feature_normalizer = None
+    if feat_norm_sd:
+        feature_normalizer = FeatureNormalizer(feat_norm_sd['mean'].shape[0], dtype=dtype)
+        feature_normalizer.load_state_dict(feat_norm_sd)
+
     radio = RADIOModel(
         mod,
         conditioner,
@@ -129,6 +137,7 @@ def radio_model(
         window_size=vitdet_window_size,
         preferred_resolution=resource.preferred_resolution,
         adaptors=adaptors,
+        feature_normalizer=feature_normalizer,
     )
 
     if vitdet_window_size is not None:
