@@ -305,7 +305,7 @@ RADIO allows non-square inputs. In fact, both RADIOv1 and RADIOv2 achieve higher
 ### Adaptors
 _(Currently only supported with TorchHub)_
 
-You may additionally specify model adaptors to achieve extra behaviors. Currently, 'clip' is the only supported adaptor. In this mode, radio will return a dict of tuples:
+You may additionally specify model adaptors to achieve extra behaviors. In this mode, radio will return a dict of tuples:
 
 ```Python
 model = torch.hub.load(..., adaptor_names='clip', ...)
@@ -317,6 +317,13 @@ clip_summary, clip_features = output['clip']
 ```
 
 Refer to `examples/zero_shot_imagenet.py` for example usage.
+
+#### Supported Adaptors:
+
+- RADIOv2.5: `clip`, `siglip`, `dino_v2`, `sam`
+- RADIOv2\[.1\]: `clip`, `dino_v2`, `sam`
+
+The `clip` and `siglip` adaptors have the additional functionality of supporting tokenization and language encoding. Refer to `examples/zero_shot_imagenet.py` for this use, as well as the [API](https://github.com/NVlabs/RADIO/blob/main/radio/open_clip_adaptor.py#L33-L36).
 
 ### Preprocessing
 
