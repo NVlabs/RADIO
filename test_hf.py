@@ -14,8 +14,18 @@
 import argparse
 
 from PIL import Image
-from transformers import AutoModel, CLIPImageProcessor
+from transformers import AutoConfig, AutoModel, CLIPImageProcessor
 import torch
+
+from radio.adaptor_base import RadioOutput
+
+
+def deterministic_grid_init(shape):
+    """Return a diverse but deterministic grid of values."""
+    indices = torch.stack(
+        torch.meshgrid([torch.arange(s, dtype=torch.float32) for s in shape]), dim=-1
+    )
+    return torch.sin(indices[..., 0]) + torch.cos(indices[..., 1])
 
 
 def main():
@@ -32,6 +42,8 @@ def main():
 
     python3 -m test_hf --hf-repo nvidia/RADIO --torchhub-version ./radio_v2.1_bf16.pth.tar
     python3 -m test_hf --hf-repo gheinrich/RADIO --torchhub-version ./radio_v2.1_bf16.pth.tar --torchhub-repo NVlabs/RADIO:dev/hf
+    python3 -m test_hf --hf-repo gheinrich/RADIO --torchhub-version ./radio-v2.5-l_half.pth.tar --torchhub-repo NVlabs/RADIO:dev/hf
+    python3 -m test_hf --hf-repo gheinrich/RADIO --torchhub-version ./radio-v2.5-l_half.pth.tar  --adaptor-names siglip,sam
     """
     parser = argparse.ArgumentParser()
     parser.add_argument("--hf-repo", help="Path to the HuggingFace repo", required=True)
@@ -41,38 +53,78 @@ def main():
     parser.add_argument(
         "--torchhub-repo", help="Path to the Torchhub repo", default="NVlabs/RADIO"
     )
+    parser.add_argument(
+        "--adaptor-names",
+        default=None,
+        type=lambda x: x.split(","),
+        required=False,
+        help="Comma-separated list of adaptor names",
+    )
 
     args = parser.parse_args()
 
-    hf_model = AutoModel.from_pretrained(args.hf_repo, trust_remote_code=True)
+    hf_config = AutoConfig.from_pretrained(args.hf_repo, trust_remote_code=True)
+    if args.adaptor_names is not None:
+        # Configure adaptors if specified on the command line.
+        # This needs to happen before we instantiate the model.
+        hf_config.adaptor_names = args.adaptor_names
+    hf_model = AutoModel.from_pretrained(
+        args.hf_repo, trust_remote_code=True, config=hf_config
+    )
     hf_model.eval().cuda()
 
-    # Sample inference with random values.
-    x = torch.randn(
-        1,
-        3,
-        hf_model.config.preferred_resolution[0],
-        hf_model.config.preferred_resolution[1],
+    # Sample inference with deterministic values.
+    x = deterministic_grid_init(
+        (
+            1,
+            3,
+            hf_model.config.preferred_resolution[0],
+            hf_model.config.preferred_resolution[1],
+        )
     ).cuda()
 
     # Infer using HuggingFace model.
-    hf_model_summary, hf_model_features = hf_model(x)
-    print(
-        f"Sample inference on tensor shape {x.shape} returned summary ",
-        f"with shape={hf_model_summary.shape} and std={hf_model_summary.std().item():.3}, ",
-        f"features with shape={hf_model_features.shape} and std={hf_model_features.std().item():.3}",
-    )
+    hf_output = hf_model(x)
+    if isinstance(hf_output, tuple):
+        hf_output = dict(backbone=RadioOutput(hf_output[0], hf_output[1]))
 
     # Infer using TorchHub model.
     torchhub_model = torch.hub.load(
-        args.torchhub_repo, "radio_model", version=args.torchhub_version
+        args.torchhub_repo,
+        "radio_model",
+        version=args.torchhub_version,
+        adaptor_names=args.adaptor_names,
     )
     torchhub_model.cuda().eval()
-    torchhub_model_summary, torchhub_model_features = torchhub_model(x)
+    torchhub_output = torchhub_model(x)
 
-    # Make sure the results are the same.
-    assert torch.allclose(hf_model_summary, torchhub_model_summary, atol=1e-6)
-    assert torch.allclose(hf_model_features, torchhub_model_features, atol=1e-6)
+    if isinstance(torchhub_output, tuple):
+        torchhub_output = dict(
+            backbone=RadioOutput(torchhub_output[0], torchhub_output[1])
+        )
+
+    for k in torchhub_output.keys():
+        hf_summary, hf_features = hf_output[k].summary, hf_output[k].features
+        torchhub_summary, torchhub_features = (
+            torchhub_output[k].summary,
+            torchhub_output[k].features,
+        )
+
+        print(
+            f"[{k}] HF model Sample inference on tensor shape {x.shape} returned summary ",
+            f"with shape={hf_summary.shape} and std={hf_summary.std().item():.3}, ",
+            f"features with shape={hf_features.shape} and std={hf_features.std().item():.3}",
+        )
+
+        print(
+            f"[{k}] TorchHub model Sample inference on tensor shape {x.shape} returned summary ",
+            f"with shape={torchhub_summary.shape} and std={torchhub_summary.std().item():.3}, ",
+            f"features with shape={torchhub_features.shape} and std={torchhub_features.std().item():.3}",
+        )
+
+        # Make sure the results are the same.
+        assert torch.allclose(hf_summary, torchhub_summary, atol=1e-6)
+        assert torch.allclose(hf_features, torchhub_features, atol=1e-6)
 
     print("All outputs matched!")
 
@@ -83,13 +135,17 @@ def main():
     pixel_values = image_processor(images=image, return_tensors="pt").pixel_values
     pixel_values = pixel_values.to(torch.bfloat16).cuda()
 
-    hf_model_summary, hf_model_features = hf_model(pixel_values)
-    print(
-        f"Sample inference on image shape {pixel_values.shape} with "
-        f"min={pixel_values.min().item():.3} and max={pixel_values.max().item():.3} returned summary ",
-        f"with shape={hf_model_summary.shape} and std={hf_model_summary.std().item():.3}, ",
-        f"features with shape={hf_model_features.shape} and std={hf_model_features.std().item():.3}",
-    )
+    hf_output = hf_model(pixel_values)
+    if isinstance(hf_output, tuple):
+        hf_output = dict(backbone=RadioOutput(hf_output[0], hf_output[1]))
+    for k, v in hf_output.items():
+        hf_summary, hf_features = v.summary, v.features
+        print(
+            f"[{k}] Sample inference on image shape {pixel_values.shape} with "
+            f"min={pixel_values.min().item():.3} and max={pixel_values.max().item():.3} returned summary ",
+            f"with shape={hf_summary.shape} and std={hf_summary.std().item():.3}, ",
+            f"features with shape={hf_features.shape} and std={hf_features.std().item():.3}",
+        )
 
 
 if __name__ == "__main__":
