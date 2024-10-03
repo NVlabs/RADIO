@@ -14,8 +14,6 @@ from timm.models import create_model, VisionTransformer
 
 from .enable_cpe_support import enable_cpe
 from .input_conditioner import InputConditioner
-# Register extra models
-from . import extra_timm_models
 from .adaptor_base import AdaptorBase, RadioOutput, AdaptorInput
 from . import eradio_model
 from .enable_spectral_reparam import configure_spectral_reparam_from_args
@@ -211,13 +209,25 @@ class RADIOModel(nn.Module):
             aggregation=aggregation,
         )
 
-        outputs = [(summary, self.feature_normalizer(features)) for summary, features in outputs]
+        if not intermediates_only:
+            final, intermediates = outputs
 
         if return_prefix_tokens:
-            radio_outputs = [RadioOutput(summary, features) for (summary, features) in outputs]
+            radio_outputs = [
+                RadioOutput(summary, self.feature_normalizer(features))
+                for summary, features in intermediates
+            ]
+            radio_outputs = [RadioOutput(summary, features) for (summary, features) in intermediates]
         else:
-            radio_outputs = [RadioOutput(None, features) for features in outputs]
-        return radio_outputs
+            radio_outputs = [
+                self.feature_normalizer(features)
+                for features in intermediates
+            ]
+
+        if intermediates_only:
+            return radio_outputs
+        else:
+            return self.feature_normalizer(final), radio_outputs
 
 
 def create_model_from_args(args) -> nn.Module:

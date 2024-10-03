@@ -20,7 +20,6 @@ from timm.models import clean_state_dict
 from radio.adaptor_registry import adaptor_registry
 from radio.common import DEFAULT_VERSION, RadioResource, RESOURCE_MAP
 from radio.enable_spectral_reparam import disable_spectral_reparam
-from radio import extra_models
 from radio.feature_normalizer import FeatureNormalizer
 from radio.radio_model import RADIOModel, create_model_from_args
 from radio.input_conditioner import get_default_conditioner
