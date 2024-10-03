@@ -138,12 +138,18 @@ def get_mlp_info_from_state(version: str, state: Dict[str, torch.Tensor], prefix
     return input_dim, hidden_dim, output_dim, num_inner
 
 
+def create_mlp_from_config(version: str, input_dim: int, hidden_dim: int, output_dim: int, num_inner: int):
+    ret: nn.Module = MLP_FACTORY[version](input_dim, hidden_dim, output_dim, num_inner)
+
+    return ret
+
+
 def create_mlp_from_state(version: str, state: Dict[str, torch.Tensor], prefix: str = ''):
     state = strip_prefix(state, prefix)
 
     input_dim, hidden_dim, output_dim, num_inner = get_mlp_info_from_state(version, state)
 
-    ret: nn.Module = MLP_FACTORY[version](input_dim, hidden_dim, output_dim, num_inner)
+    ret: nn.Module = create_mlp_from_config(version, input_dim, hidden_dim, output_dim, num_inner)
 
     ret.load_state_dict(state)
 

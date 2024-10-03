@@ -263,6 +263,19 @@ pixel_values = pixel_values.to(torch.bfloat16).cuda()
 summary, features = model(pixel_values)
 ```
 
+In order to use adaptors with models from HuggingFace, first you need to load the config
+and set `adaptor_names`, then load the model using this config.
+
+```python
+config = AutoConfig.from_pretrained(args.hf_repo, trust_remote_code=True)
+config.adaptor_names = ["clip", "sam"]
+model = AutoModel.from_pretrained(hf_repo, trust_remote_code=True, config=config)
+model.eval().cuda()
+
+clip_summary, clip_features = model(pixel_values)["clip"].summary, model(pixel_values)["clip"].features
+sam_summary, sam_features = model(pixel_values)["sam"].summary, model(pixel_values)["sam"].features
+```
+
 ### Usage
 
 RADIO and E-RADIO will return a tuple with two tensors.

@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 from collections import namedtuple
-from typing import Callable, Optional, List, Union
+from typing import Callable, Dict, Optional, List, Union
 
 from timm.models import VisionTransformer
 import torch
@@ -25,7 +25,7 @@ from .common import RESOURCE_MAP, DEFAULT_VERSION
 # Import all required modules.
 from .adaptor_base import AdaptorBase, RadioOutput, AdaptorInput
 from .adaptor_generic import GenericAdaptor, AdaptorBase
-from .adaptor_mlp import create_mlp_from_state
+from .adaptor_mlp import create_mlp_from_config
 from .adaptor_registry import adaptor_registry
 from .cls_token import ClsToken
 from .enable_cpe_support import enable_cpe
@@ -53,6 +53,7 @@ class RADIOConfig(PretrainedConfig):
         max_resolution: Optional[int] = None,
         preferred_resolution: Optional[Resolution] = None,
         adaptor_names: Union[str, List[str]] = None,
+        adaptor_configs: Dict[str, Dict[str, int]] = None,
         vitdet_window_size: Optional[int] = None,
         **kwargs,
     ):
@@ -71,6 +72,7 @@ class RADIOConfig(PretrainedConfig):
             preferred_resolution or resource.preferred_resolution
         )
         self.adaptor_names = adaptor_names
+        self.adaptor_configs = adaptor_configs
         self.vitdet_window_size = vitdet_window_size
         super().__init__(**kwargs)
 
@@ -106,13 +108,15 @@ class RADIOModel(PreTrainedModel):
             dtype=torch.int64,
         )
 
-        adaptor_names = config.adaptor_names
-        if adaptor_names is not None:
-            raise NotImplementedError(
-                f"Adaptors are not yet supported in Hugging Face models. Adaptor names: {adaptor_names}"
-            )
+        adaptor_configs = config.adaptor_configs
+        adaptor_names = config.adaptor_names or []
 
         adaptors = dict()
+        for adaptor_name in adaptor_names:
+            mlp_config = adaptor_configs[adaptor_name]
+            adaptor = GenericAdaptor(args, None, None, mlp_config)
+            adaptor.head_idx = mlp_config["head_idx"]
+            adaptors[adaptor_name] = adaptor
 
         self.radio_model = RADIOModelBase(
             model,
