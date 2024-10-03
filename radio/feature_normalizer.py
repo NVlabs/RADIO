@@ -28,8 +28,8 @@ class FeatureNormalizer(nn.Module):
     def __init__(self, embed_dim: int, dtype: torch.dtype = torch.float32):
         super().__init__()
 
-        self.register_buffer('mean', torch.zeros(embed_dim, dtype=dtype))
-        self.register_buffer('tx', torch.eye(embed_dim, dtype=dtype))
+        self.mean = nn.Parameter(torch.zeros(embed_dim, dtype=dtype), requires_grad=False)
+        self.tx = nn.Parameter(torch.eye(embed_dim, dtype=dtype), requires_grad=False)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = _run_kernel(x, self.mean, self.tx)
