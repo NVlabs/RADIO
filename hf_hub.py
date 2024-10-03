@@ -163,11 +163,21 @@ def main():
 
         adaptor_configs[adaptor_name] = adaptor_config
 
+
+    feat_norm_sd = get_prefix_state_dict(state_dict, '_feature_normalizer.')
+
+    feature_normalizer_config = None
+    if feat_norm_sd is not None:
+        feature_normalizer_config = {
+            "embed_dim": feat_norm_sd['mean'].shape[0]
+        }
+
     radio_config = RADIOConfig(
         vars(model_args),
         version=args.version,
         adaptor_names=adaptor_names,
         adaptor_configs=adaptor_configs,
+        feature_normalizer_config=feature_normalizer_config,
     )
     radio_model = RADIOModel(radio_config)
 
@@ -195,6 +205,10 @@ def main():
     radio_model.input_conditioner.load_state_dict(
         get_prefix_state_dict(state_dict, "input_conditioner.")
     )
+
+    # Restore feature normalizer.
+    if feat_norm_sd:
+        radio_model.radio_model.feature_normalizer.load_state_dict(feat_norm_sd)
 
     radio_model.eval().cuda()
 
@@ -264,6 +278,25 @@ def main():
 
         print(f"{k} outputs matched!")
 
+    x_conditioned = radio_model.input_conditioner(x)
+    intermediates = radio_model.radio_model.forward_intermediates(
+                        x_conditioned,
+                        indices=[-1],
+                        return_prefix_tokens=True,
+                        norm=False,
+                        stop_early=False,
+                        output_fmt='NLC',
+                        intermediates_only=True,
+                        aggregation="sparse",
+                    )
+    print(
+        f"Intermediates inference returned ",
+        f"features with shape={intermediates[0].features.shape} and std={intermediates[0].features.std().item():.3}",
+    )
+    assert torch.allclose(intermediates[0].features, torchhub_output["backbone"].features, atol=1e-6)
+
+    print("All outputs matched!")
+
     if args.push:
         # Push to HuggingFace Hub.
         huggingface_repo = args.hf_repo
@@ -274,7 +307,6 @@ def main():
             huggingface_repo, create_pr=True, commit_message=args.commit_message
         )
         print(f"Pushed to {commit}")
-
 
 if __name__ == "__main__":
     """Call the main entrypoiny."""
