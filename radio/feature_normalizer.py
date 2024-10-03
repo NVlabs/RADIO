@@ -18,6 +18,13 @@ class FeatureNormalizer(nn.Module):
         self.register_buffer('tx', torch.eye(embed_dim, dtype=dtype))
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        x = x - self.mean
-        x = x @ self.tx.T
+        if x.ndim <= 3:
+            x = x - self.mean
+            x = x @ self.tx.T
+        elif x.ndim == 4:
+            x = x - self.mean.reshape(1, -1, 1, 1)
+            kernel = self.tx.reshape(*self.tx.shape, 1, 1)
+            x = torch.nn.functional.conv2d(x, weight=kernel, bias=None, stride=1, padding=0)
+        else:
+            raise ValueError(f'Unsupported input dimension: {x.ndim}, shape: {x.shape}')
         return x
