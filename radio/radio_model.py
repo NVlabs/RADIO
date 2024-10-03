@@ -201,7 +201,7 @@ class RADIOModel(nn.Module):
         Returns:
             List of RadioOutput objects.
         """
-        outputs = self.model.forward_intermediates(
+        intermediates = self.model.forward_intermediates(
             x,
             indices=indices,
             return_prefix_tokens=return_prefix_tokens,
@@ -213,17 +213,26 @@ class RADIOModel(nn.Module):
         )
 
         if not intermediates_only:
-            final, intermediates = outputs
+            final, intermediates = intermediates
+
+        def prepare_features(feats: torch.Tensor):
+            return self.feature_normalizer(feats)
+
+        def prepare_summary(summ: Optional[torch.Tensor]):
+            if summ is None:
+                return summ
+            if self.summary_idxs is not None:
+                summ = summ[:, self.summary_idxs]
+            return summ.flatten(1)
 
         if return_prefix_tokens:
             radio_outputs = [
-                RadioOutput(summary, self.feature_normalizer(features))
+                RadioOutput(prepare_summary(summary), prepare_features(features))
                 for summary, features in intermediates
             ]
-            radio_outputs = [RadioOutput(summary, features) for (summary, features) in intermediates]
         else:
             radio_outputs = [
-                self.feature_normalizer(features)
+                prepare_features(features)
                 for features in intermediates
             ]
 

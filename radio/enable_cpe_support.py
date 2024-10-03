@@ -111,7 +111,7 @@ def _forward_intermediates_cpe(
         intermediates = [y.reshape(B, H, W, -1).permute(0, 3, 1, 2).contiguous() for y in intermediates]
     if not torch.jit.is_scripting() and return_prefix_tokens:
         # return_prefix not support in torchscript due to poor type handling
-        intermediates = list(zip(intermediates, prefix_tokens))
+        intermediates = list(zip(prefix_tokens, intermediates))
     if intermediates_only:
         return intermediates
     x = self.norm(x)
