@@ -59,10 +59,22 @@ class IntermediateFeatureNormalizer(IntermediateFeatureNormalizerBase):
 
         y = _run_kernel(x, self.means[index], self.rotation)
 
+        alpha = self.alphas[index]
         if skip:
+            alpha = torch.cat([
+                torch.ones(skip, dtype=alpha.dtype, device=alpha.device),
+                alpha[None].expand(y.shape[1]),
+            ]).reshape(1, -1, 1)
             y = torch.cat([prefix, y], dim=1)
+        else:
+            if x.ndim == 3:
+                alpha = alpha.reshape(1, 1, 1).expand(1, y.shape[1], 1)
+            elif x.ndim == 4:
+                alpha = alpha.reshape(1, 1, 1, 1).expand(1, 1, *y.shape[2:])
+            else:
+                raise ValueError(f'Unsupported input dimension: {x.ndim}')
 
-        return InterFeatState(y, self.alphas[index])
+        return InterFeatState(y, alpha)
 
 
 class NullIntermediateFeatureNormalizer(IntermediateFeatureNormalizerBase):

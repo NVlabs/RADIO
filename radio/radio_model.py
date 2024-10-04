@@ -188,6 +188,7 @@ class RADIOModel(nn.Module):
             output_fmt: str = 'NCHW',
             intermediates_only: bool = False,
             aggregation: Optional[str] = "sparse",
+            norm_alpha_scheme: Optional[str] = "post-alpha",
     ) -> List[RadioOutput]:
         """ Forward features that returns intermediates.
         Args:
@@ -200,9 +201,12 @@ class RADIOModel(nn.Module):
             intermediates_only: Only return intermediate features
             aggregation: intermediate layer aggregation method (sparse or dense).
                 Dense accumulation is done by averaging the features in each group.
+            norm_alpha_scheme: apply alpha before ("pre-alpha") or after accumulation ("post-alpha"), or don't normalize ("none")
+                Only affects dense aggregation
         Returns:
             List of RadioOutput objects.
         """
+        x = self.input_conditioner(x)
         intermediates = self.model.forward_intermediates(
             x,
             indices=indices,
@@ -213,6 +217,7 @@ class RADIOModel(nn.Module):
             intermediates_only=intermediates_only,
             aggregation=aggregation,
             inter_feature_normalizer=self.inter_feature_normalizer,
+            norm_alpha_scheme=norm_alpha_scheme,
         )
 
         if not intermediates_only:

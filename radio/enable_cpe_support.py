@@ -52,6 +52,7 @@ def _forward_intermediates_cpe(
         intermediates_only: bool = False,
         aggregation: Optional[str] = "sparse",
         inter_feature_normalizer: Optional[IntermediateFeatureNormalizerBase] = None,
+        norm_alpha_scheme = "post-alpha",
 ) -> Union[List[torch.Tensor], Tuple[torch.Tensor, List[torch.Tensor]]]:
     """ Forward features that returns intermediates.
 
@@ -67,6 +68,7 @@ def _forward_intermediates_cpe(
         output_fmt: Shape of intermediate feature outputs
         intermediates_only: Only return intermediate features
         aggregation: intermediate layer aggregation method (sparse or dense)
+        norm_alpha_scheme: apply alpha before ("pre-alpha") or after accumulation ("post-alpha")
     Returns:
     """
     assert output_fmt in ('NCHW', 'NLC'), 'Output format must be one of NCHW or NLC.'
@@ -83,8 +85,11 @@ def _forward_intermediates_cpe(
     else:
         blocks = self.blocks[:max_index + 1]
 
-    if inter_feature_normalizer is None:
+    if inter_feature_normalizer is None or norm_alpha_scheme == 'none':
         inter_feature_normalizer = NullIntermediateFeatureNormalizer.get_instance(x.dtype, x.device)
+
+    assert norm_alpha_scheme in ('none', 'pre-alpha', 'post-alpha'), f'Unsupported alpha scheme: {norm_alpha_scheme}'
+    post_alpha_scheme = norm_alpha_scheme == 'post-alpha'
 
     accumulator = 0
     alpha_sum = 0
@@ -95,8 +100,12 @@ def _forward_intermediates_cpe(
         x = blk(x)
         if aggregation == "dense":
             y, alpha = inter_feature_normalizer(x, i, skip=num_skip)
-            accumulator = accumulator + y
-            alpha_sum = alpha_sum + alpha
+            if post_alpha_scheme:
+                accumulator = accumulator + y
+                alpha_sum = alpha_sum + alpha
+            else:
+                accumulator = accumulator + (alpha * y)
+                alpha_sum += 1
             num_accumulated += 1
         if i in take_indices:
             if aggregation == "dense":

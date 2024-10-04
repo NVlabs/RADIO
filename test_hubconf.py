@@ -14,4 +14,6 @@ if __name__ == "__main__":
         y_int1 = model.forward_intermediates(x, indices=[1, 5, 7], output_fmt='NCHW')
         y_int2 = model.forward_intermediates(x, indices=[2, 4, 6], output_fmt='NLC')
         y_int3 = model.forward_intermediates(x, indices=[3, 5, 7], return_prefix_tokens=True, output_fmt='NCHW', aggregation='dense', intermediates_only=True)
+        y_int4 = model.forward_intermediates(x, indices=[3, 5, 7], return_prefix_tokens=True, output_fmt='NCHW', aggregation='dense', intermediates_only=True, norm_alpha_scheme='pre-alpha')
+        y_int5 = model.forward_intermediates(x, indices=[3, 5, 7], return_prefix_tokens=True, output_fmt='NCHW', aggregation='dense', intermediates_only=True, norm_alpha_scheme='none')
         pass
