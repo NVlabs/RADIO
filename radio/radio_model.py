@@ -223,9 +223,6 @@ class RADIOModel(nn.Module):
         if not intermediates_only:
             final, intermediates = intermediates
 
-        def prepare_features(feats: torch.Tensor):
-            return self.feature_normalizer(feats)
-
         def prepare_summary(summ: Optional[torch.Tensor]):
             if summ is None:
                 return summ
@@ -235,14 +232,11 @@ class RADIOModel(nn.Module):
 
         if return_prefix_tokens:
             radio_outputs = [
-                RadioOutput(prepare_summary(summary), prepare_features(features))
+                RadioOutput(prepare_summary(summary), features)
                 for summary, features in intermediates
             ]
         else:
-            radio_outputs = [
-                prepare_features(features)
-                for features in intermediates
-            ]
+            radio_outputs = intermediates
 
         if intermediates_only:
             return radio_outputs

@@ -42,22 +42,32 @@ class InterFeatState(NamedTuple):
 
 
 class IntermediateFeatureNormalizerBase(nn.Module):
-    def forward(self, x: torch.Tensor, index: int, skip: Optional[int] = None) -> InterFeatState:
+    def forward(self, x: torch.Tensor, index: int, rot_index: int = None, skip: Optional[int] = None) -> InterFeatState:
         raise NotImplementedError()
 
 
 class IntermediateFeatureNormalizer(IntermediateFeatureNormalizerBase):
-    def __init__(self, num_intermediates: int, embed_dim: int, dtype: torch.dtype = torch.float32):
+    def __init__(self, num_intermediates: int, embed_dim: int, rot_per_layer: bool = False, dtype: torch.dtype = torch.float32):
         super().__init__()
         self.register_buffer('alphas', torch.ones(num_intermediates, dtype=dtype))
-        self.register_buffer('rotation', torch.eye(embed_dim, dtype=dtype))
+
+        rot = torch.eye(embed_dim, dtype=dtype)
+        if rot_per_layer:
+            rot = rot.unsqueeze(0).repeat(num_intermediates, 1, 1)
+
+        self.register_buffer('rotation', rot.contiguous())
         self.register_buffer('means', torch.zeros(num_intermediates, embed_dim, dtype=dtype))
 
-    def forward(self, x: torch.Tensor, index: int, skip: Optional[int] = None) -> InterFeatState:
+    def forward(self, x: torch.Tensor, index: int, rot_index: int = None, skip: Optional[int] = None) -> InterFeatState:
+        if rot_index is None:
+            rot_index = index
+
         if skip:
+            assert x.ndim == 3, f'Cannot use the `skip` parameter when the `x` tensor isn\'t 3-dimensional.'
             prefix, x = x[:, :skip], x[:, skip:]
 
-        y = _run_kernel(x, self.means[index], self.rotation)
+        rotation = self._get_rotation(rot_index)
+        y = _run_kernel(x, self.means[index], rotation)
 
         alpha = self.alphas[index]
         if skip:
@@ -76,6 +86,11 @@ class IntermediateFeatureNormalizer(IntermediateFeatureNormalizerBase):
 
         return InterFeatState(y, alpha)
 
+    def _get_rotation(self, rot_index: int) -> torch.Tensor:
+        if self.rotation.ndim == 2:
+            return self.rotation
+        return self.rotation[rot_index]
+
 
 class NullIntermediateFeatureNormalizer(IntermediateFeatureNormalizerBase):
     instance = None
@@ -90,5 +105,5 @@ class NullIntermediateFeatureNormalizer(IntermediateFeatureNormalizerBase):
             NullIntermediateFeatureNormalizer.instance = NullIntermediateFeatureNormalizer(dtype, device)
         return NullIntermediateFeatureNormalizer.instance
 
-    def forward(self, x: torch.Tensor, index: int, skip: Optional[int] = None) -> InterFeatState:
+    def forward(self, x: torch.Tensor, index: int, rot_index: int = None, skip: Optional[int] = None) -> InterFeatState:
         return InterFeatState(x, self.alpha)

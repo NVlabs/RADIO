@@ -76,6 +76,7 @@ def _forward_intermediates_cpe(
     reshape = output_fmt == 'NCHW'
     intermediates = []
     take_indices, max_index = _take_indices(len(self.blocks), indices)
+    take_indices = sorted(take_indices)
     # forward pass
     B, _, height, width = x.shape
     x = self.patch_generator(x)
@@ -96,10 +97,13 @@ def _forward_intermediates_cpe(
     num_accumulated = 0
     num_skip = self.patch_generator.num_skip
 
+    take_off = 0
+
     for i, blk in enumerate(blocks):
         x = blk(x)
         if aggregation == "dense":
-            y, alpha = inter_feature_normalizer(x, i, skip=num_skip)
+            # Arbitrarily use the rotation matrix from the final layer in the dense group
+            y, alpha = inter_feature_normalizer(x, i, rot_index=take_indices[take_off], skip=num_skip)
             if post_alpha_scheme:
                 accumulator = accumulator + y
                 alpha_sum = alpha_sum + alpha
@@ -107,7 +111,7 @@ def _forward_intermediates_cpe(
                 accumulator = accumulator + (alpha * y)
                 alpha_sum += 1
             num_accumulated += 1
-        if i in take_indices:
+        if i == take_indices[take_off]:
             if aggregation == "dense":
                 alpha = alpha_sum / num_accumulated
                 x_ = alpha * accumulator / num_accumulated
@@ -119,6 +123,7 @@ def _forward_intermediates_cpe(
                  x_ = alpha * y
             # normalize intermediates with final norm layer if enabled
             intermediates.append(self.norm(x_) if norm else x_)
+            take_off = min(take_off + 1, len(take_indices) - 1)
 
     # process intermediates
 

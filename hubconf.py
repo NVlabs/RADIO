@@ -130,7 +130,11 @@ def radio_model(
     inter_feat_norm_sd = get_prefix_state_dict(state_dict, '_intermediate_feature_normalizer.')
     inter_feature_normalizer = None
     if inter_feat_norm_sd:
-        inter_feature_normalizer = IntermediateFeatureNormalizer(*inter_feat_norm_sd['means'].shape[:2], dtype=dtype)
+        inter_feature_normalizer = IntermediateFeatureNormalizer(
+            *inter_feat_norm_sd['means'].shape[:2],
+            rot_per_layer=inter_feat_norm_sd['rotation'].ndim == 3,
+            dtype=dtype
+        )
         inter_feature_normalizer.load_state_dict(inter_feat_norm_sd)
 
     radio = RADIOModel(
