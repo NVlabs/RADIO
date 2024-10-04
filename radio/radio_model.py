@@ -126,10 +126,10 @@ class RADIOModel(nn.Module):
 
         x = self.input_conditioner(x)
         y = self.model.forward_features(x)
-        ret = self._extract_final(y)
+        ret = self._extract_final(x, y)
         return ret
 
-    def _extract_final(self, y: torch.Tensor):
+    def _extract_final(self, x: torch.Tensor, y: torch.Tensor):
         if isinstance(self.model, VisionTransformer):
             patch_gen = getattr(self.model, "patch_generator", None)
             if patch_gen is not None:
@@ -239,7 +239,7 @@ class RADIOModel(nn.Module):
         if intermediates_only:
             return radio_outputs
         else:
-            final = self._extract_final(final)
+            final = self._extract_final(x, final)
             return final, radio_outputs
 
 
