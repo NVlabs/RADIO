@@ -17,7 +17,7 @@ from .input_conditioner import InputConditioner
 from .adaptor_base import AdaptorBase, RadioOutput, AdaptorInput
 from . import eradio_model
 from .enable_spectral_reparam import configure_spectral_reparam_from_args
-from .feature_normalizer import FeatureNormalizer
+from .feature_normalizer import FeatureNormalizer, IntermediateFeatureNormalizer
 
 
 class Resolution(NamedTuple):
@@ -37,6 +37,7 @@ class RADIOModel(nn.Module):
         window_size: int = None,
         adaptors: Dict[str, AdaptorBase] = None,
         feature_normalizer: Optional[FeatureNormalizer] = None,
+        inter_feature_normalizer: Optional[IntermediateFeatureNormalizer] = None,
     ):
         super().__init__()
 
@@ -58,6 +59,7 @@ class RADIOModel(nn.Module):
         if feature_normalizer is None:
             feature_normalizer = nn.Identity()
         self.feature_normalizer = feature_normalizer
+        self.inter_feature_normalizer = inter_feature_normalizer
 
     @property
     def num_summary_tokens(self) -> int:
@@ -210,6 +212,7 @@ class RADIOModel(nn.Module):
             output_fmt=output_fmt,
             intermediates_only=intermediates_only,
             aggregation=aggregation,
+            inter_feature_normalizer=self.inter_feature_normalizer,
         )
 
         if not intermediates_only:

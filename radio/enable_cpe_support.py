@@ -14,6 +14,8 @@ from torch import nn
 
 from timm.models import VisionTransformer, checkpoint_seq
 
+from radio.feature_normalizer import IntermediateFeatureNormalizerBase, NullIntermediateFeatureNormalizer
+
 from .vit_patch_generator import ViTPatchGenerator
 
 
@@ -49,6 +51,7 @@ def _forward_intermediates_cpe(
         output_fmt: str = 'NCHW',
         intermediates_only: bool = False,
         aggregation: Optional[str] = "sparse",
+        inter_feature_normalizer: Optional[IntermediateFeatureNormalizerBase] = None,
 ) -> Union[List[torch.Tensor], Tuple[torch.Tensor, List[torch.Tensor]]]:
     """ Forward features that returns intermediates.
 
@@ -80,29 +83,39 @@ def _forward_intermediates_cpe(
     else:
         blocks = self.blocks[:max_index + 1]
 
+    if inter_feature_normalizer is None:
+        inter_feature_normalizer = NullIntermediateFeatureNormalizer.get_instance(x.dtype, x.device)
+
     accumulator = 0
+    alpha_sum = 0
     num_accumulated = 0
+    num_skip = self.patch_generator.num_skip
 
     for i, blk in enumerate(blocks):
         x = blk(x)
         if aggregation == "dense":
-            accumulator = accumulator + x
+            y, alpha = inter_feature_normalizer(x, i, skip=num_skip)
+            accumulator = accumulator + y
+            alpha_sum = alpha_sum + alpha
             num_accumulated += 1
         if i in take_indices:
             if aggregation == "dense":
-                x_ = accumulator / num_accumulated
+                alpha = alpha_sum / num_accumulated
+                x_ = alpha * accumulator / num_accumulated
                 num_accumulated = 0
                 accumulator = 0
+                alpha_sum = 0
             else:
-                 x_ = x
+                 y, alpha = inter_feature_normalizer(x, i, skip=num_skip)
+                 x_ = alpha * y
             # normalize intermediates with final norm layer if enabled
             intermediates.append(self.norm(x_) if norm else x_)
 
     # process intermediates
 
     # split prefix (e.g. class, distill) and spatial feature tokens
-    prefix_tokens = [y[:, 0:self.patch_generator.num_cls_tokens] for y in intermediates]
-    intermediates = [y[:, self.patch_generator.num_skip:] for y in intermediates]
+    prefix_tokens = [y[:, :self.patch_generator.num_cls_tokens] for y in intermediates]
+    intermediates = [y[:, num_skip:] for y in intermediates]
 
     if reshape:
         # reshape to BCHW output format

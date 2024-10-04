@@ -1,9 +1,10 @@
+import sys
 import torch
 from hubconf import radio_model
 
 
 if __name__ == "__main__":
-    model = radio_model().cuda()
+    model = radio_model(version=sys.argv[1] if len(sys.argv) > 1 else '').cuda()
 
     x = torch.rand(1, 3, 256, 256, device='cuda')
 
