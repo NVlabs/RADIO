@@ -1,4 +1,5 @@
 from distutils.version import LooseVersion
+from typing import Optional, Tuple
 import warnings
 
 import torch
@@ -59,5 +60,68 @@ def _get_paligemma_model(repo: str, embed_dim: int = None, dtype: torch.dtype = 
 @register_model
 def paligemma_896_student(**kwargs):
     model = _get_paligemma_model('google/paligemma-3b-pt-896', embed_dim=1152, dtype=None)
+
+    return model
+
+
+def _load_dino_v2(dino_v2_model, cache_dir: Optional[str] = None, pretrained=True, **kwargs):
+    if cache_dir:
+        torch.hub.set_dir(cache_dir)
+    model = torch.hub.load(
+        'facebookresearch/dinov2',
+        dino_v2_model,
+        pretrained=pretrained,
+        # **kwargs,
+    )
+    return model
+
+
+class DinoWrapper(nn.Module):
+    def __init__(self, dino_model: nn.Module):
+        super().__init__()
+
+        self.inner = dino_model
+        dino_model.blocks = nn.Sequential(*dino_model.blocks)
+
+    @property
+    def embed_dim(self):
+        return self.inner.embed_dim
+
+    @property
+    def patch_size(self):
+        return self.inner.patch_size
+
+    @property
+    def num_cls_tokens(self):
+        return getattr(self.inner, 'num_tokens', 1)
+
+    @property
+    def num_registers(self):
+        return getattr(self.inner, 'num_register_tokens', 0)
+
+    @property
+    def num_summary_tokens(self):
+        return self.num_cls_tokens + self.num_registers
+
+    def forward(self, *args, **kwargs) -> Tuple[torch.Tensor, torch.Tensor]:
+        parts = self.inner.forward_features(*args, **kwargs)
+
+        cls_token = parts['x_norm_clstoken']
+        features = parts['x_norm_patchtokens']
+
+        return cls_token, features
+
+    def forward_features(self, x: torch.Tensor):
+        x = self.inner.prepare_tokens_with_masks(x)
+        x = self.inner.blocks(x)
+        x_norm = self.inner.norm(x)
+
+        return x_norm[:, 0], x_norm[:, self.num_summary_tokens:]
+
+
+@register_model
+def dino_v2_g_student(**kwargs):
+    model = _load_dino_v2('dinov2_vitg14_reg', pretrained=False)
+    model = DinoWrapper(model)
 
     return model

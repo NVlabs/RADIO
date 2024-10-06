@@ -87,7 +87,9 @@ def main(rank: int = 0, world_size: int = 1):
     dinov2.cuda().eval()
     dinov2_preprocessor.cuda().eval()
 
-    resolutions = list(range(224, 1024 + 16, 16))
+    first_res = int(math.floor(224 / radio.patch_size) * radio.patch_size)
+    final_res = int(math.ceil(1024 / radio.patch_size) * radio.patch_size)
+    resolutions = list(range(first_res, final_res + radio.patch_size, radio.patch_size))
 
     # Get the subset of resolutions for this rank
     resolutions = resolutions[rank::world_size]
@@ -99,7 +101,7 @@ def main(rank: int = 0, world_size: int = 1):
         transforms.ToDtype(torch.float32, scale=True),
     ])
     transform = transforms.Compose([
-        ResizeTransform([512, 512], resize_multiple=16),
+        ResizeTransform([512, 512], resize_multiple=radio.patch_size),
         transforms.CenterCrop([512, 512]),
         transforms.ToImage(),
         transforms.ToDtype(torch.float32, scale=True),
@@ -120,7 +122,7 @@ def main(rank: int = 0, world_size: int = 1):
     bins = dict()
 
     for res in tqdm(resolutions, desc="Resolutions", disable=rank > 0, position=0, leave=True):
-        dv2_res = res * 14 // 16
+        dv2_res = res * 14 // radio.patch_size
         update_resolution(transform_dv2, dv2_res)
 
         update_resolution(transform, res)
@@ -131,7 +133,7 @@ def main(rank: int = 0, world_size: int = 1):
         cov_bb: torch.Tensor = None
         cov_bb_ct = 0
 
-        for i, sample in tqdm(enumerate(dataset), total=args.n, disable=rank > 0, desc=f'{res}', position=1, leave=True):
+        for i, sample in tqdm(enumerate(dataset), total=args.n, disable=rank > 0, desc=f'{res}', position=1, leave=False):
             if i == args.n:
                 break
 
@@ -175,7 +177,9 @@ def main(rank: int = 0, world_size: int = 1):
         # if rank == 0:
         #     print(f'Backbone Feature Variance:\n{cov_bb.diag()}')
 
-        res_matched = F.interpolate(res_features, size=dino_features.shape[-2:], mode='bilinear', align_corners=True)
+        res_matched = res_features
+        if res_features.shape != dino_features.shape:
+            res_matched = F.interpolate(res_features, size=dino_features.shape[-2:], mode='bilinear', align_corners=True)
 
         cos_error = 1 - F.cosine_similarity(res_matched, dino_features, dim=1).mean()
         mse_error = F.mse_loss(res_matched, dino_features, reduction='mean')
