@@ -36,7 +36,9 @@ class ViTPatchGenerator(nn.Module):
                  pos_dropout: float = 0.0,
                  return_pos_enc: bool = False,
                  num_cls_tokens: int = 1,
-                 register_multiple: int = 0,
+                 register_multiple: Optional[int] = None,
+                 num_registers: Optional[int] = None,
+                 patch_bias: bool = False,
                  device=None, dtype=None,
     ):
         super().__init__()
@@ -71,7 +73,7 @@ class ViTPatchGenerator(nn.Module):
         self.max_input_dims = max_input_dims
 
         self.im_to_patches = Im2Patches(patch_size)
-        self.embedder = ViTPatchLinear(patch_size, embed_dim, **factory)
+        self.embedder = ViTPatchLinear(patch_size, embed_dim, bias=patch_bias, **factory)
 
         if abs_pos:
             scale = embed_dim ** -0.5
@@ -82,6 +84,7 @@ class ViTPatchGenerator(nn.Module):
             num_tokens=num_cls_tokens,
             enabled=cls_token,
             register_multiple=register_multiple,
+            num_registers=num_registers,
         )
 
         self.patch_normalizer = nn.LayerNorm(embed_dim) if normalize_patches else nn.Identity()
@@ -274,11 +277,11 @@ class Im2Patches(nn.Module):
 
 
 class ViTPatchLinear(nn.Linear):
-    def __init__(self, patch_size: int, embed_dim: int, **factory):
+    def __init__(self, patch_size: int, embed_dim: int, bias: bool = False, **factory):
         super().__init__(
             3 * (patch_size ** 2),
             embed_dim,
-            bias=False,
+            bias=bias,
             **factory
         )
         self.patch_size = patch_size

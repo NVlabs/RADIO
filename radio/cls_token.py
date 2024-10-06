@@ -5,6 +5,7 @@
 # and any modifications thereto.  Any use, reproduction, disclosure or
 # distribution of this software and related documentation without an express
 # license agreement from NVIDIA CORPORATION is strictly prohibited.
+from typing import Optional
 
 import torch
 from torch import nn
@@ -14,7 +15,8 @@ class ClsToken(nn.Module):
     def __init__(self, ndim: int,
                  num_tokens: int = 1,
                  enabled: bool = True,
-                 register_multiple: int = 0,
+                 register_multiple: Optional[int] = None,
+                 num_registers: Optional[int] = None,
     ):
         super().__init__()
 
@@ -23,7 +25,9 @@ class ClsToken(nn.Module):
         self.num_registers = 0
         self.num_tokens = num_tokens
         if enabled:
-            if register_multiple > 0:
+            if num_registers:
+                self.num_registers = num_registers
+            elif register_multiple:
                 self.num_registers = register_multiple - (num_tokens % register_multiple)
 
             scale = ndim ** -0.5

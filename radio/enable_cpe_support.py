@@ -16,6 +16,7 @@ from timm.models import VisionTransformer, checkpoint_seq
 
 from radio.feature_normalizer import IntermediateFeatureNormalizerBase, NullIntermediateFeatureNormalizer
 
+from .extra_models import DinoWrapper
 from .vit_patch_generator import ViTPatchGenerator
 
 
@@ -144,11 +145,23 @@ def _forward_intermediates_cpe(
     x = self.norm(x)
     return x, intermediates
 
-def enable_cpe(model: nn.Module,
-               max_img_size: Union[int, Tuple[int, int]] = 1024,
-               num_cls_tokens: int = 1,
-               pos_dropout: float = 0.1,
-               register_multiple: int = 0,
+
+def _forward_cpe_dinov2(self: DinoWrapper, x: torch.Tensor) -> torch.Tensor:
+    y = _forward_cpe(self.inner, x)
+
+    return y[:, 0], y[:, self.num_summary_tokens:]
+
+
+def _forward_intermediates_cpe_dinov2(self: DinoWrapper, *args, **kwargs):
+    return _forward_intermediates_cpe(self.inner, *args, **kwargs)
+
+
+def _enable_cpe_for_timm_vit(model: VisionTransformer,
+                             max_img_size: Union[int, Tuple[int, int]] = 1024,
+                             num_cls_tokens: int = 1,
+                             pos_dropout: float = 0.1,
+                             register_multiple: int = Optional[None],
+                             num_registers: int = Optional[None],
 ):
     if not isinstance(model, VisionTransformer):
         raise ValueError("CPE only support for VisionTransformer models!")
@@ -171,6 +184,7 @@ def enable_cpe(model: nn.Module,
         pos_dropout=pos_dropout,
         num_cls_tokens=num_cls_tokens,
         register_multiple=register_multiple,
+        num_registers=num_registers,
     )
 
     model.patch_generator = patch_generator
@@ -183,3 +197,56 @@ def enable_cpe(model: nn.Module,
 
     model.forward_features = MethodType(_forward_cpe, model)
     model.forward_intermediates = MethodType(_forward_intermediates_cpe, model)
+
+
+def _enable_cpe_for_dv2_reg_vit(model: DinoWrapper,
+                                max_img_size: Union[int, Tuple[int, int]] = 1024,
+                                num_cls_tokens: int = 1,
+                                pos_dropout: float = 0.1,
+                                register_multiple: int = Optional[None],
+                                num_registers: int = Optional[None],
+):
+    patch_size = model.patch_size
+    embed_dim = model.embed_dim
+    input_dims = model.inner.patch_embed.patches_resolution
+    normalize_patches = not isinstance(model.inner.patch_embed.norm, nn.Identity)
+    cls_token = True
+
+    max_img_size = int(round(max_img_size / patch_size) * patch_size)
+
+    patch_generator = ViTPatchGenerator(
+        patch_size=patch_size,
+        embed_dim=embed_dim,
+        input_dims=input_dims,
+        normalize_patches=normalize_patches,
+        cls_token=cls_token,
+        max_input_dims=max_img_size,
+        pos_dropout=pos_dropout,
+        num_cls_tokens=num_cls_tokens,
+        register_multiple=register_multiple,
+        num_registers=num_registers,
+        init_from=model,
+        patch_bias=True,
+    )
+
+    inner = model.inner
+    inner.patch_generator = patch_generator
+    inner.patch_embed = None
+    inner.cls_token = None
+    inner.pos_embed = None
+    inner.register_tokens = None
+
+    model.forward_features = MethodType(_forward_cpe_dinov2, model)
+    model.forward_intermediates = MethodType(_forward_intermediates_cpe_dinov2, model)
+
+
+def enable_cpe(model: nn.Module,
+               *args,
+               **kwargs,
+):
+    if isinstance(model, VisionTransformer):
+        _enable_cpe_for_timm_vit(model, *args, **kwargs)
+    elif isinstance(model, DinoWrapper):
+        _enable_cpe_for_dv2_reg_vit(model, *args, **kwargs)
+    else:
+        raise ValueError(f'CPE not supported for this model type: {type(model)}')

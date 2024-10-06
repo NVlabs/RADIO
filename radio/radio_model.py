@@ -287,7 +287,8 @@ def create_model_from_args(args) -> nn.Module:
             model,
             args.cpe_max_size,
             num_cls_tokens=len(uq_teachers) if args.cls_token_per_teacher else 1,
-            register_multiple=args.register_multiple,
+            register_multiple=getattr(args, 'register_multiple', None),
+            num_registers=getattr(args, 'cpe_num_registers', None),
         )
 
     if args.spectral_reparam:
