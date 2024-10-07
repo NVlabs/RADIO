@@ -63,9 +63,24 @@ class RADIOModel(nn.Module):
 
     @property
     def num_summary_tokens(self) -> int:
+        if hasattr(self.model, 'num_summary_tokens'):
+            return self.model.num_summary_tokens
+
         patch_gen = getattr(self.model, "patch_generator", None)
         if patch_gen is not None:
             return patch_gen.num_skip
+        elif self.model.global_pool == 'avg':
+            return 0
+        return 1
+
+    @property
+    def num_cls_tokens(self) -> int:
+        if hasattr(self.model, 'num_cls_tokens'):
+            return self.model.num_cls_tokens
+
+        patch_gen = getattr(self.model, 'patch_generator', None)
+        if patch_gen is not None:
+            return patch_gen.num_cls_tokens
         elif self.model.global_pool == 'avg':
             return 0
         return 1
@@ -169,7 +184,15 @@ class RADIOModel(nn.Module):
             all_summary, all_feat = y
             bb_summary = all_summary
         else:
-            raise ValueError("Unsupported model type")
+            all_summary = y[:, :self.num_cls_tokens]
+            if self.summary_idxs is not None and all_summary.shape[1] > 1:
+                if all_summary.shape[1] == 1:
+                    # Create dummy duplicates
+                    all_summary = all_summary.expand(-1, 128, -1)
+                bb_summary = all_summary[:, self.summary_idxs]
+            else:
+                bb_summary = all_summary
+            all_feat = y[:, self.num_summary_tokens:]
 
         all_feat = all_feat.float()
 
@@ -237,7 +260,7 @@ class RADIOModel(nn.Module):
         def prepare_summary(summ: Optional[torch.Tensor]):
             if summ is None:
                 return summ
-            if self.summary_idxs is not None:
+            if self.summary_idxs is not None and summ.shape[1] > 1:
                 summ = summ[:, self.summary_idxs]
             return summ.flatten(1)
 

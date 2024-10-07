@@ -1,11 +1,13 @@
 from distutils.version import LooseVersion
-from typing import Optional, Tuple
+from typing import List, Optional, Tuple, Union
 import warnings
 
 import torch
 from torch import nn
 
 from timm.models.registry import register_model
+
+from .forward_intermediates import forward_intermediates
 
 
 class PaliGemmaWrapper(nn.Module):
@@ -129,6 +131,24 @@ class DinoWrapper(nn.Module):
         x_norm = self.inner.norm(x)
 
         return x_norm[:, 0], x_norm[:, self.num_summary_tokens:]
+
+    def patchify(self, x: torch.Tensor) -> torch.Tensor:
+        return self.inner.prepare_tokens_with_masks(x)
+
+    def forward_intermediates(self,
+        x: torch.Tensor,
+        norm: bool = False,
+        **kwargs,
+    ) -> Union[List[torch.Tensor], Tuple[torch.Tensor, List[torch.Tensor]]]:
+        return forward_intermediates(
+            self,
+            patch_extractor=self.inner.prepare_tokens_with_masks,
+            num_summary_tokens=self.num_summary_tokens,
+            num_cls_tokens=self.num_cls_tokens,
+            norm=self.inner.norm if norm else lambda y: y,
+            x=x,
+            **kwargs,
+        )
 
 
 @register_model

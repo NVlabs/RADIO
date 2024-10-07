@@ -18,6 +18,7 @@ from radio.feature_normalizer import IntermediateFeatureNormalizerBase, NullInte
 
 from .extra_models import DinoWrapper
 from .vit_patch_generator import ViTPatchGenerator
+from .forward_intermediates import forward_intermediates
 
 
 def _forward_cpe(self: VisionTransformer, x: torch.Tensor) -> torch.Tensor:
@@ -45,105 +46,18 @@ def _take_indices(
 def _forward_intermediates_cpe(
         self,
         x: torch.Tensor,
-        indices: Optional[Union[int, List[int], Tuple[int]]] = None,
-        return_prefix_tokens: bool = False,
         norm: bool = False,
-        stop_early: bool = False,
-        output_fmt: str = 'NCHW',
-        intermediates_only: bool = False,
-        aggregation: Optional[str] = "sparse",
-        inter_feature_normalizer: Optional[IntermediateFeatureNormalizerBase] = None,
-        norm_alpha_scheme = "post-alpha",
+        **kwargs,
 ) -> Union[List[torch.Tensor], Tuple[torch.Tensor, List[torch.Tensor]]]:
-    """ Forward features that returns intermediates.
-
-    The Dense layer aggregation method is inspired from the paper: "Dense Connector for MLLMs"
-    by Yao, Huanjin et al. (2024). arXiv preprint arXiv:2405.13800}
-
-    Args:
-        x: Input image tensor
-        indices: Take last n blocks if int, select matching indices if sequence
-        return_prefix_tokens: Return both prefix and spatial intermediate tokens
-        norm: Apply norm layer to all intermediates
-        stop_early: Stop iterating over blocks when last desired intermediate hit
-        output_fmt: Shape of intermediate feature outputs
-        intermediates_only: Only return intermediate features
-        aggregation: intermediate layer aggregation method (sparse or dense)
-        norm_alpha_scheme: apply alpha before ("pre-alpha") or after accumulation ("post-alpha")
-    Returns:
-    """
-    assert output_fmt in ('NCHW', 'NLC'), 'Output format must be one of NCHW or NLC.'
-    assert aggregation in ('sparse', 'dense'), 'Aggregation must be one of sparse or dense.'
-    reshape = output_fmt == 'NCHW'
-    intermediates = []
-    take_indices, max_index = _take_indices(len(self.blocks), indices)
-    take_indices = sorted(take_indices)
-    # forward pass
-    B, _, height, width = x.shape
-    x = self.patch_generator(x)
-
-    if not stop_early:  # can't slice blocks in torchscript
-        blocks = self.blocks
-    else:
-        blocks = self.blocks[:max_index + 1]
-
-    if inter_feature_normalizer is None or norm_alpha_scheme == 'none':
-        inter_feature_normalizer = NullIntermediateFeatureNormalizer.get_instance(x.dtype, x.device)
-
-    assert norm_alpha_scheme in ('none', 'pre-alpha', 'post-alpha'), f'Unsupported alpha scheme: {norm_alpha_scheme}'
-    post_alpha_scheme = norm_alpha_scheme == 'post-alpha'
-
-    accumulator = 0
-    alpha_sum = 0
-    num_accumulated = 0
-    num_skip = self.patch_generator.num_skip
-
-    take_off = 0
-
-    for i, blk in enumerate(blocks):
-        x = blk(x)
-        if aggregation == "dense":
-            # Arbitrarily use the rotation matrix from the final layer in the dense group
-            y, alpha = inter_feature_normalizer(x, i, rot_index=take_indices[take_off], skip=num_skip)
-            if post_alpha_scheme:
-                accumulator = accumulator + y
-                alpha_sum = alpha_sum + alpha
-            else:
-                accumulator = accumulator + (alpha * y)
-                alpha_sum += 1
-            num_accumulated += 1
-        if i == take_indices[take_off]:
-            if aggregation == "dense":
-                alpha = alpha_sum / num_accumulated
-                x_ = alpha * accumulator / num_accumulated
-                num_accumulated = 0
-                accumulator = 0
-                alpha_sum = 0
-            else:
-                 y, alpha = inter_feature_normalizer(x, i, skip=num_skip)
-                 x_ = alpha * y
-            # normalize intermediates with final norm layer if enabled
-            intermediates.append(self.norm(x_) if norm else x_)
-            take_off = min(take_off + 1, len(take_indices) - 1)
-
-    # process intermediates
-
-    # split prefix (e.g. class, distill) and spatial feature tokens
-    prefix_tokens = [y[:, :self.patch_generator.num_cls_tokens] for y in intermediates]
-    intermediates = [y[:, num_skip:] for y in intermediates]
-
-    if reshape:
-        # reshape to BCHW output format
-        H = height // self.patch_generator.patch_size
-        W = width // self.patch_generator.patch_size
-        intermediates = [y.reshape(B, H, W, -1).permute(0, 3, 1, 2).contiguous() for y in intermediates]
-    if not torch.jit.is_scripting() and return_prefix_tokens:
-        # return_prefix not support in torchscript due to poor type handling
-        intermediates = list(zip(prefix_tokens, intermediates))
-    if intermediates_only:
-        return intermediates
-    x = self.norm(x)
-    return x, intermediates
+    return forward_intermediates(
+        self,
+        patch_extractor=self.patch_generator,
+        num_summary_tokens=self.patch_generator.num_skip,
+        num_cls_tokens=self.patch_generator.num_cls_tokens,
+        norm=self.norm if norm else lambda y: y,
+        x=x,
+        **kwargs,
+    )
 
 
 def _forward_cpe_dinov2(self: DinoWrapper, x: torch.Tensor) -> torch.Tensor:
@@ -192,6 +106,7 @@ def _enable_cpe_for_timm_vit(model: VisionTransformer,
     model.cls_token = None
     model.pos_embed = None
     model.pos_drop = None
+    model.patch_size = patch_size
     model.num_cls_tokens = num_cls_tokens
     model.num_registers = patch_generator.num_registers
 
@@ -235,6 +150,7 @@ def _enable_cpe_for_dv2_reg_vit(model: DinoWrapper,
     inner.cls_token = None
     inner.pos_embed = None
     inner.register_tokens = None
+    inner.patch_size = patch_size
 
     model.forward_features = MethodType(_forward_cpe_dinov2, model)
     model.forward_intermediates = MethodType(_forward_intermediates_cpe_dinov2, model)
