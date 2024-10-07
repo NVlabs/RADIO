@@ -17,7 +17,15 @@ class PaliGemmaWrapper(nn.Module):
 
     @property
     def patch_size(self):
-        return 14
+        return self.vis_model.embeddings.patch_size
+
+    @property
+    def blocks(self):
+        return self.vis_model.encoder.layers
+
+    @property
+    def embed_dim(self):
+        return self.vis_model.embeddings.embed_dim
 
     def forward(self, x: torch.Tensor):
         outputs = self.vis_model(
@@ -102,6 +110,10 @@ class DinoWrapper(nn.Module):
     @property
     def num_summary_tokens(self):
         return self.num_cls_tokens + self.num_registers
+
+    @property
+    def blocks(self):
+        return self.inner.blocks
 
     def forward(self, *args, **kwargs) -> Tuple[torch.Tensor, torch.Tensor]:
         parts = self.inner.forward_features(*args, **kwargs)

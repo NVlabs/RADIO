@@ -146,7 +146,20 @@ def enable_spectral_reparam(model: Union[nn.Module, List[nn.Module]],
 
     print('Enabling spectral reparametrization')
     args = dict(n_power_iterations=n_power_iterations, dim=0, eps=eps, init_norm_to_current=init_norm_to_current)
+    visited_prefixes = set()
+
+    def parametrize_linear(linear: nn.Linear):
+        parametrize.register_parametrization(
+            linear,
+            'weight',
+            _SNReweight(linear.weight, **args)
+        )
+
     for name, mod in model.named_modules():
+        pref = '.'.join(name.split('.')[:-1])
+        if pref in visited_prefixes:
+            continue
+
         if isinstance(mod, Attention) or name.endswith('.attn'):
             parametrize.register_parametrization(
                 mod.qkv,
@@ -154,43 +167,18 @@ def enable_spectral_reparam(model: Union[nn.Module, List[nn.Module]],
                 _AttnSNReweight(mod.qkv.weight, renorm_values=renorm_values, **args),
             )
             if hasattr(mod, 'proj'):
-                parametrize.register_parametrization(
-                    mod.proj,
-                    'weight',
-                    _SNReweight(mod.proj.weight, **args),
-                )
-            pass
-        elif (isinstance(mod, Mlp) or name.endswith('mlp')) and renorm_mlp:
-            if not hasattr(mod, 'w12'):
-                parametrize.register_parametrization(
-                    mod.fc1,
-                    'weight',
-                    _SNReweight(mod.fc1.weight, **args),
-                )
-                parametrize.register_parametrization(
-                    mod.fc2,
-                    'weight',
-                    _SNReweight(mod.fc2.weight, **args),
-                )
-            else:
-                parametrize.register_parametrization(
-                    mod.w12,
-                    'weight',
-                    _ChunkedSNReweight(mod.w12.weight, num_chunks=2, **args),
-                )
-                parametrize.register_parametrization(
-                    mod.w3,
-                    'weight',
-                    _SNReweight(mod.w3.weight, **args),
-                )
-            pass
-        elif name.endswith('.self_attn'):
-            for key in ['k_proj', 'q_proj', 'v_proj', 'out_proj']:
-                parametrize.register_parametrization(
-                    getattr(mod, key),
-                    'weight',
-                    _SNReweight(getattr(mod, key).weight, **args),
-                )
+                parametrize_linear(mod.proj)
+            visited_prefixes.add(name)
+        elif name.endswith('mlp') and renorm_mlp and hasattr(mod, 'w12'):
+            parametrize.register_parametrization(
+                mod.w12,
+                'weight',
+                _ChunkedSNReweight(mod.w12.weight, num_chunks=2, **args),
+            )
+            parametrize_linear(mod.w3)
+            visited_prefixes.add(name)
+        elif isinstance(mod, nn.Linear) and 'patch_generator' not in name:
+            parametrize_linear(mod)
 
 
 def configure_spectral_reparam_from_args(model: nn.Module, args):

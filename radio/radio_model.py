@@ -5,7 +5,7 @@
 # and any modifications thereto.  Any use, reproduction, disclosure or
 # distribution of this software and related documentation without an express
 # license agreement from NVIDIA CORPORATION is strictly prohibited.
-from typing import Callable, Dict, List, NamedTuple, Optional, Tuple, Union
+from typing import Callable, Dict, Iterable, List, NamedTuple, Optional, Tuple, Union
 
 import torch
 from torch import nn
@@ -99,6 +99,17 @@ class RADIOModel(nn.Module):
         if self.window_size is not None:
             res *= self.window_size
         return res
+
+    @property
+    def blocks(self) -> Iterable[nn.Module]:
+        blocks = getattr(self.model, 'blocks', None)
+        if blocks is not None:
+            return blocks
+        return None
+
+    @property
+    def embed_dim(self) -> int:
+        return self.model.embed_dim
 
     def make_preprocessor_external(self) -> Callable[[torch.Tensor], torch.Tensor]:
         ret = self.input_conditioner
@@ -197,7 +208,7 @@ class RADIOModel(nn.Module):
             return_prefix_tokens: Return both prefix and spatial intermediate tokens
             norm: Apply norm layer to all intermediates
             stop_early: Stop iterating over blocks when last desired intermediate hit
-            output_fmt: Shape of intermediate feature outputs
+            output_fmt: Shape of intermediate feature outputs. Options: NCHW, NLC
             intermediates_only: Only return intermediate features
             aggregation: intermediate layer aggregation method (sparse or dense).
                 Dense accumulation is done by averaging the features in each group.
