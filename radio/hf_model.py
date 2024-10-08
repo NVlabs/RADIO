@@ -31,7 +31,7 @@ from .cls_token import ClsToken
 from .enable_cpe_support import enable_cpe
 from .enable_spectral_reparam import configure_spectral_reparam_from_args
 from .eradio_model import eradio
-from .feature_normalizer import FeatureNormalizer
+from .feature_normalizer import FeatureNormalizer, IntermediateFeatureNormalizer
 from .radio_model import create_model_from_args
 from .radio_model import RADIOModel as RADIOModelBase, Resolution
 from .input_conditioner import get_default_conditioner, InputConditioner
@@ -57,6 +57,7 @@ class RADIOConfig(PretrainedConfig):
         adaptor_configs: Dict[str, Dict[str, int]] = None,
         vitdet_window_size: Optional[int] = None,
         feature_normalizer_config: Optional[dict] = None,
+        inter_feature_normalizer_config: Optional[dict] = None,
         **kwargs,
     ):
         self.args = args
@@ -77,6 +78,7 @@ class RADIOConfig(PretrainedConfig):
         self.adaptor_configs = adaptor_configs
         self.vitdet_window_size = vitdet_window_size
         self.feature_normalizer_config = feature_normalizer_config
+        self.inter_feature_normalizer_config = inter_feature_normalizer_config
         super().__init__(**kwargs)
 
 
@@ -126,6 +128,14 @@ class RADIOModel(PreTrainedModel):
             # Actual normalization values will be restored when loading checkpoint weights.
             feature_normalizer = FeatureNormalizer(config.feature_normalizer_config["embed_dim"])
 
+        inter_feature_normalizer = None
+        if config.inter_feature_normalizer_config is not None:
+            inter_feature_normalizer = IntermediateFeatureNormalizer(
+                config.inter_feature_normalizer_config["num_intermediates"],
+                config.inter_feature_normalizer_config["embed_dim"],
+                rot_per_layer=config.inter_feature_normalizer_config["rot_per_layer"],
+                dtype=dtype)
+
         self.radio_model = RADIOModelBase(
             model,
             input_conditioner,
@@ -136,6 +146,7 @@ class RADIOModel(PreTrainedModel):
             preferred_resolution=config.preferred_resolution,
             adaptors=adaptors,
             feature_normalizer=feature_normalizer,
+            inter_feature_normalizer=inter_feature_normalizer,
         )
 
     @property
