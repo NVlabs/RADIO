@@ -140,7 +140,6 @@ def _enable_cpe_for_dv2_reg_vit(model: DinoWrapper,
         num_cls_tokens=num_cls_tokens,
         register_multiple=register_multiple,
         num_registers=num_registers,
-        init_from=model,
         patch_bias=True,
     )
 
