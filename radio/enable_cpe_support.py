@@ -23,7 +23,7 @@ from .forward_intermediates import forward_intermediates
 
 def _forward_cpe(self: VisionTransformer, x: torch.Tensor) -> torch.Tensor:
     x = self.patch_generator(x)
-    if self.grad_checkpointing and not torch.jit.is_scripting():
+    if getattr(self, 'grad_checkpointing', False) and not torch.jit.is_scripting():
         x = checkpoint_seq(self.blocks, x)
     else:
         x = self.blocks(x)
