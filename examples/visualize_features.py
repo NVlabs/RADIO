@@ -195,9 +195,10 @@ def main(rank: int = 0, world_size: int = 1):
                         output_fmt='NLC',
                         intermediates_only=True,
                         aggregation=args.intermediate_aggregation,
+                        norm_alpha_scheme="none",
                     )
                     assert args.adaptor_name is None
-                    all_feat = [o[1] for o in outputs]
+                    all_feat = outputs
                 else:
                     output = model(p_images)
                     if args.adaptor_name:
