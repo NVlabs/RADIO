@@ -14,7 +14,7 @@ from torch import nn
 
 from timm.models import VisionTransformer, checkpoint_seq
 
-from radio.feature_normalizer import IntermediateFeatureNormalizerBase, NullIntermediateFeatureNormalizer
+from .feature_normalizer import IntermediateFeatureNormalizerBase, NullIntermediateFeatureNormalizer
 
 from .extra_models import DinoWrapper
 from .vit_patch_generator import ViTPatchGenerator
