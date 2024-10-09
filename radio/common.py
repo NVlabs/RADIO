@@ -38,6 +38,20 @@ RESOURCE_MAP = {
         preferred_resolution=(768, 768),
         vitdet_num_global=4,
     ),
+    "radio_v2.5-h": RadioResource(
+        "https://huggingface.co/nvidia/RADIO/resolve/main/radio_v2.5-h.pth.tar?download=true",
+        patch_size=16,
+        max_resolution=2048,
+        preferred_resolution=(768, 768),
+        vitdet_num_global=4,
+    ),
+    "radio_v2.5-h-norm": RadioResource(
+        "https://huggingface.co/nvidia/RADIO/resolve/main/radio_v2.5-h-norm.pth.tar?download=true",
+        patch_size=16,
+        max_resolution=2048,
+        preferred_resolution=(768, 768),
+        vitdet_num_global=4,
+    ),
     # RADIO
     "radio_v2.1": RadioResource(
         "https://huggingface.co/nvidia/RADIO/resolve/main/radio_v2.1_bf16.pth.tar?download=true",
@@ -68,4 +82,4 @@ RESOURCE_MAP = {
     ),
 }
 
-DEFAULT_VERSION = "radio_v2.5-l"
+DEFAULT_VERSION = "radio_v2.5-h"

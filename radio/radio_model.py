@@ -5,7 +5,7 @@
 # and any modifications thereto.  Any use, reproduction, disclosure or
 # distribution of this software and related documentation without an express
 # license agreement from NVIDIA CORPORATION is strictly prohibited.
-from typing import Callable, Dict, List, NamedTuple, Optional, Tuple, Union
+from typing import Callable, Dict, Iterable, List, NamedTuple, Optional, Tuple, Union
 
 import torch
 from torch import nn
@@ -14,11 +14,10 @@ from timm.models import create_model, VisionTransformer
 
 from .enable_cpe_support import enable_cpe
 from .input_conditioner import InputConditioner
-# Register extra models
-from . import extra_timm_models
 from .adaptor_base import AdaptorBase, RadioOutput, AdaptorInput
 from . import eradio_model
 from .enable_spectral_reparam import configure_spectral_reparam_from_args
+from .feature_normalizer import FeatureNormalizer, IntermediateFeatureNormalizer
 
 
 class Resolution(NamedTuple):
@@ -37,6 +36,8 @@ class RADIOModel(nn.Module):
         summary_idxs: Optional[torch.Tensor] = None,
         window_size: int = None,
         adaptors: Dict[str, AdaptorBase] = None,
+        feature_normalizer: Optional[FeatureNormalizer] = None,
+        inter_feature_normalizer: Optional[IntermediateFeatureNormalizer] = None,
     ):
         super().__init__()
 
@@ -55,8 +56,16 @@ class RADIOModel(nn.Module):
         adaptors = adaptors or dict()
         self.adaptors = nn.ModuleDict(adaptors)
 
+        if feature_normalizer is None:
+            feature_normalizer = nn.Identity()
+        self.feature_normalizer = feature_normalizer
+        self.inter_feature_normalizer = inter_feature_normalizer
+
     @property
     def num_summary_tokens(self) -> int:
+        if hasattr(self.model, 'num_summary_tokens'):
+            return self.model.num_summary_tokens
+
         patch_gen = getattr(self.model, "patch_generator", None)
         if patch_gen is not None:
             return patch_gen.num_skip
@@ -65,9 +74,23 @@ class RADIOModel(nn.Module):
         return 1
 
     @property
+    def num_cls_tokens(self) -> int:
+        if hasattr(self.model, 'num_cls_tokens'):
+            return self.model.num_cls_tokens
+
+        patch_gen = getattr(self.model, 'patch_generator', None)
+        if patch_gen is not None:
+            return patch_gen.num_cls_tokens
+        elif self.model.global_pool == 'avg':
+            return 0
+        return 1
+
+    @property
     def patch_size(self) -> int:
         if self._patch_size is not None:
             return self._patch_size
+        if hasattr(self.model, "patch_size"):
+            return self.model.patch_size
         patch_gen = getattr(self.model, "patch_generator", None)
         if patch_gen is not None:
             return patch_gen.patch_size
@@ -91,6 +114,17 @@ class RADIOModel(nn.Module):
         if self.window_size is not None:
             res *= self.window_size
         return res
+
+    @property
+    def blocks(self) -> Iterable[nn.Module]:
+        blocks = getattr(self.model, 'blocks', None)
+        if blocks is not None:
+            return blocks
+        return None
+
+    @property
+    def embed_dim(self) -> int:
+        return self.model.embed_dim
 
     def make_preprocessor_external(self) -> Callable[[torch.Tensor], torch.Tensor]:
         ret = self.input_conditioner
@@ -120,7 +154,10 @@ class RADIOModel(nn.Module):
 
         x = self.input_conditioner(x)
         y = self.model.forward_features(x)
+        ret = self._extract_final(x, y)
+        return ret
 
+    def _extract_final(self, x: torch.Tensor, y: torch.Tensor):
         if isinstance(self.model, VisionTransformer):
             patch_gen = getattr(self.model, "patch_generator", None)
             if patch_gen is not None:
@@ -147,9 +184,20 @@ class RADIOModel(nn.Module):
             all_summary, all_feat = y
             bb_summary = all_summary
         else:
-            raise ValueError("Unsupported model type")
+            all_summary = y[:, :self.num_cls_tokens]
+            if self.summary_idxs is not None and all_summary.shape[1] > 1:
+                if all_summary.shape[1] == 1:
+                    # Create dummy duplicates
+                    all_summary = all_summary.expand(-1, 128, -1)
+                bb_summary = all_summary[:, self.summary_idxs]
+            else:
+                bb_summary = all_summary
+            all_feat = y[:, self.num_summary_tokens:]
 
         all_feat = all_feat.float()
+
+        all_feat = self.feature_normalizer(all_feat)
+
         ret = RadioOutput(bb_summary.flatten(1), all_feat).to(torch.float32)
         if self.adaptors:
             ret = dict(backbone=ret)
@@ -174,6 +222,7 @@ class RADIOModel(nn.Module):
             output_fmt: str = 'NCHW',
             intermediates_only: bool = False,
             aggregation: Optional[str] = "sparse",
+            norm_alpha_scheme: Optional[str] = "post-alpha",
     ) -> List[RadioOutput]:
         """ Forward features that returns intermediates.
         Args:
@@ -182,14 +231,17 @@ class RADIOModel(nn.Module):
             return_prefix_tokens: Return both prefix and spatial intermediate tokens
             norm: Apply norm layer to all intermediates
             stop_early: Stop iterating over blocks when last desired intermediate hit
-            output_fmt: Shape of intermediate feature outputs
+            output_fmt: Shape of intermediate feature outputs. Options: NCHW, NLC
             intermediates_only: Only return intermediate features
             aggregation: intermediate layer aggregation method (sparse or dense).
                 Dense accumulation is done by averaging the features in each group.
+            norm_alpha_scheme: apply alpha before ("pre-alpha") or after accumulation ("post-alpha"), or don't normalize ("none")
+                Only affects dense aggregation
         Returns:
             List of RadioOutput objects.
         """
-        outputs = self.model.forward_intermediates(
+        x = self.input_conditioner(x)
+        intermediates = self.model.forward_intermediates(
             x,
             indices=indices,
             return_prefix_tokens=return_prefix_tokens,
@@ -198,12 +250,33 @@ class RADIOModel(nn.Module):
             output_fmt=output_fmt,
             intermediates_only=intermediates_only,
             aggregation=aggregation,
+            inter_feature_normalizer=self.inter_feature_normalizer,
+            norm_alpha_scheme=norm_alpha_scheme,
         )
+
+        if not intermediates_only:
+            final, intermediates = intermediates
+
+        def prepare_summary(summ: Optional[torch.Tensor]):
+            if summ is None:
+                return summ
+            if self.summary_idxs is not None and summ.shape[1] > 1:
+                summ = summ[:, self.summary_idxs]
+            return summ.flatten(1)
+
         if return_prefix_tokens:
-            radio_outputs = [RadioOutput(summary, features) for (summary, features) in outputs]
+            radio_outputs = [
+                RadioOutput(prepare_summary(summary), features)
+                for summary, features in intermediates
+            ]
         else:
-            radio_outputs = [RadioOutput(None, features) for features in outputs]
-        return radio_outputs
+            radio_outputs = intermediates
+
+        if intermediates_only:
+            return radio_outputs
+        else:
+            final = self._extract_final(x, final)
+            return final, radio_outputs
 
 
 def create_model_from_args(args) -> nn.Module:
@@ -248,7 +321,8 @@ def create_model_from_args(args) -> nn.Module:
             model,
             args.cpe_max_size,
             num_cls_tokens=len(uq_teachers) if args.cls_token_per_teacher else 1,
-            register_multiple=args.register_multiple,
+            register_multiple=getattr(args, 'register_multiple', None),
+            num_registers=getattr(args, 'cpe_num_registers', None),
         )
 
     if args.spectral_reparam:

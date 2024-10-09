@@ -12,6 +12,8 @@ from torch import nn
 from timm.models import VisionTransformer
 from einops import rearrange
 
+from .extra_models import DinoWrapper
+
 DEFAULT_NUM_WINDOWED = 5
 DEFAULT_NUM_GLOBAL = 4
 
@@ -29,11 +31,16 @@ class VitDetArgs:
         self.num_global = num_global
 
 
-def apply_vitdet_arch(model: VisionTransformer, args: VitDetArgs):
+def apply_vitdet_arch(model: Union[VisionTransformer, DinoWrapper], args: VitDetArgs):
     if isinstance(model, VisionTransformer):
         patch_embed = getattr(model, 'patch_generator', model.patch_embed)
 
         return ViTDetHook(patch_embed, model.blocks, args)
+    elif isinstance(model, DinoWrapper):
+        inner = model.inner
+
+        patch_embed = getattr(inner, 'patch_generator', inner.patch_embed)
+        return ViTDetHook(patch_embed, inner.blocks, args)
     else:
         print(f'Warning: Unable to apply VitDet aug!', file=sys.stderr)
 

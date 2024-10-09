@@ -4,11 +4,13 @@ This is a tech report for the early-access release of the RADIOv2.5 model family
 
 On 7.22.24 we are releasing ViT-B/16 and ViT-L/16 pretrained models. Under the hood, we've made a bunch of improvements to the training algorithms to produce these models. Fortunately, the API remains exactly the same!
 
+Update: On 10.2.24 we are also releasing a ViT-H/16 model, which is now our best offering!
+
 ## Usage
 
 ```Python
 torch.hub.load('NVlabs/RADIO', 'radio_model',
-    version='radio_v2.5-l',  # Can also be 'radio_v2.5-b' for the ViT-B version
+    version='radio_v2.5-h',  # Can also be 'radio_v2.5-b' for the ViT-B version, 'radio_v2.5-l' for the ViT-L version
     force_reload=True,  # Make sure you set this to True the first time you're requesting either of these two models
 )
 ```
@@ -33,15 +35,15 @@ Similar to the paper, we plot the MSE between the DINOv2-g-reg features and the 
 
 <div align="center">
     <img src="assets/radio_v2.5/mode_switching/radio-v2.1_vis-24.jpg", width="512"/>
-    <img src="assets/radio_v2.5/mode_switching/radio-v2.5-b_vis-24.jpg", width="512"/>
     <img src="assets/radio_v2.5/mode_switching/radio-v2.5-l_vis-24.jpg", width="512"/>
+    <img src="assets/radio_v2.5/mode_switching/radio-v2.5-h_vis-24.jpg", width="512"/>
 </div>
 
 You can see how the 720px RADIOv2 (left) image abruptly changes representions, whereas DINOv2 and the RADIOv2.5 models (middle, right) remain consistent and instead produce increasingly fine-grained details. We can also see how RADIOv2 is working in reverse with the SAM head, where the low-resolution inputs don't produce features that are SAM-like at all. At 1024px, RADIOv2 starts to produce reasonable SAM features. On the contrary, RADIOv2.5-L produces SAM-like features at any resolution, and arguably does a better job of extrapolating to 2048px resolution.
 
 <div align="center">
     <img src="assets/radio_v2.5/sam_mode_switching/radio-v2_vis-23.jpg", width="768"/>
-    <img src="assets/radio_v2.5/sam_mode_switching/radio-v2.5-l_vis-23.jpg", width="768"/>
+    <img src="assets/radio_v2.5/sam_mode_switching/radio-v2.5-h_vis-23.jpg", width="768"/>
 </div>
 
 Similarly to mode switching being directly observable in the spatial features, it was also causing issues with the summary features, which can be seen looking at zero shot classification:
@@ -49,29 +51,29 @@ Similarly to mode switching being directly observable in the spatial features, i
 <div align="center" style="display: flex;">
 
 <div align="right" style="flex: 1; padding-right: 20px;">
-    <img src="assets/radio_v2.5/classification_mode_switch.jpg", width="512"/>
+    <img src="assets/radio_v2.5/classification_mode_switch.png", width="512"/>
 </div>
 
 <div align="left" style="flex: 1;">
 
-| Resolution       | RADIOv2.1 | RADIOv2.5-B | RADIOv2.5-L |
-|------------------|-----------|-------------|-------------|
-| 224              | 78.892    | 62.344      | 74.852      |
-| 256              | 80.780    | 68.892      | 78.220      |
-| 336              | 82.320    | 72.626      | 80.004      |
-| 432              | 82.800    | 73.628      | 80.460      |
-| 512              | 82.882    | 73.894      | 80.542      |
-| 768              | 1.292     | 74.386      | 80.804      |
-| 1024             | 0.204     | 74.280      | 80.886      |
+| Resolution       | RADIOv2.1 | RADIOv2.5-B | RADIOv2.5-L | RADIOv2.5-H |
+|------------------|-----------|-------------|-------------|-------------|
+| 224              | 78.892    | 62.344      | 74.852      | 79.158      |
+| 256              | 80.780    | 68.892      | 78.220      | 80.156      |
+| 336              | 82.320    | 72.626      | 80.004      | 81.426      |
+| 432              | 82.800    | 73.628      | 80.460      | 81.944      |
+| 512              | 82.882    | 73.894      | 80.542      | 82.162      |
+| 768              | 1.292     | 74.386      | 80.804      | 82.088      |
+| 1024             | 0.204     | 74.280      | 80.886      | 82.304      |
 
 </div>
 
 <div>
 
-| Resolution       | RADIOv2.1 | RADIOv2.5-B | RADIOv2.5-L |
-|------------------|-----------|-------------|-------------|
-| 512 - ViTDet 16  | 82.370    | 70.488      | 78.102      |
-| 1024 - ViTDet 16 | 0.192     | 72.182      | 79.878      |
+| Resolution       | RADIOv2.1 | RADIOv2.5-B | RADIOv2.5-L | RADIOv2.5-H |
+|------------------|-----------|-------------|-------------|-------------|
+| 512 - ViTDet 16  | 82.370    | 70.488      | 78.102      | 80.058      |
+| 1024 - ViTDet 16 | 0.192     | 72.182      | 79.878      | 81.834      |
 
 </div>
 
@@ -123,7 +125,16 @@ Last but not least, we tested out the models at various resolutions within LLaVA
                                         <td>512</td><td>72.04</td><td>63.58</td><td>58.52</td><td>46.50</td><td>86.66</td><td>80.04</td>
     </tr>
     <tr>
-        <td>768</td><td><b>72.91</b></td><td><b>64.13</b></td><td><b>61.93</b></td><td><b>53.95</b></td><td><b>87.68</b></td><td><b>81.02</b></td>
+                                        <td>768</td><td>72.91</td><td>64.13</td><td>61.93</td><td>53.95</td><td><b>87.68</b></td><td>81.02</td>
+    </tr>
+    <tr>
+        <td rowspan="3">RADIOv2.5-H</td><td>432</td><td>73.22</td><td>64.91</td><td>58.66</td><td>47.61</td><td>85.95</td><td>80.49</td>
+    </tr>
+    <tr>
+                                        <td>512</td><td>73.60</td><td>64.98</td><td>60.03</td><td>51.99</td><td>86.73</td><td>80.96</td>
+    </tr>
+    <tr>
+        <td>768</td><td><b>74.04</b></td><td><b>65.03</b></td><td><b>62.39</b></td><td><b>56.93</b></td><td>87.36</td><td><b>81.56</b></td>
     </tr>
 </table>
 
@@ -140,15 +151,15 @@ The specific SigLIP version we're using is `ViT-SO400M-14-SigLIP-384` found in t
 
 <div align="center">
 
-| Resolution | RADIOv2.5-B | RADIOv2.5-L |
-|------------|-------------|-------------|
-| 224        | 58.670      | 72.492      |
-| 256        | 65.190      | 75.962      |
-| 336        | 69.110      | 77.830      |
-| 432        | 70.276      | 78.582      |
-| 512        | 70.694      | 78.828      |
-| 768        | 71.102      | 78.930      |
-| 1024       | 70.900      | 78.922      |
+| Resolution | RADIOv2.5-B | RADIOv2.5-L | RADIOv2.5-H |
+|------------|-------------|-------------|-------------|
+| 224        | 58.670      | 72.492      | 76.796      |
+| 256        | 65.190      | 75.962      | 77.984      |
+| 336        | 69.110      | 77.830      | 79.400      |
+| 432        | 70.276      | 78.582      | 79.990      |
+| 512        | 70.694      | 78.828      | 80.258      |
+| 768        | 71.102      | 78.930      | 80.172      |
+| 1024       | 70.900      | 78.922      | 80.476      |
 
 </div>
 
@@ -195,5 +206,16 @@ https://github.com/user-attachments/assets/024a23ca-ec27-44dc-8cb2-47bdd1b15635
 #### RADIOv2.5-L 1024px
 
 https://github.com/user-attachments/assets/1dd4e2ef-a47a-4121-8462-d90e087fdab6
+
+</details>
+
+<details>
+<summary>RADIOv2.5-H</summary>
+
+#### RADIOv2.5-H 512px
+
+
+#### RADIOv2.5-H 1024px
+
 
 </details>
