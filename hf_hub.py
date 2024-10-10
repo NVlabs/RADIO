@@ -21,7 +21,7 @@ from hubconf import get_prefix_state_dict
 from radio.adaptor_base import RadioOutput
 from radio.adaptor_registry import adaptor_registry
 from radio.adaptor_mlp import get_mlp_info_from_state
-from radio.hf_model import RADIOConfig, RADIOModel
+from radio.hf_model import RADIOConfig, RADIOModel, rename_all_gamma_to_weight_with_proxy
 from test_hf import deterministic_grid_init
 
 
@@ -166,7 +166,7 @@ def main():
 
     feat_norm_sd = get_prefix_state_dict(state_dict, '_feature_normalizer.')
     feature_normalizer_config = None
-    if feat_norm_sd is not None:
+    if feat_norm_sd:
         feature_normalizer_config = {
             "embed_dim": feat_norm_sd['mean'].shape[0]
         }
@@ -221,6 +221,10 @@ def main():
     if inter_feat_norm_sd:
         radio_model.radio_model.inter_feature_normalizer.load_state_dict(inter_feat_norm_sd)
 
+    # Rename "gamma" parameters to "weight"
+    rename_all_gamma_to_weight_with_proxy(radio_model.radio_model)
+    radio_config.rename_gamma_to_weight = True
+
     radio_model.eval().cuda()
 
     # Sample inference with deterministic values.
@@ -242,7 +246,7 @@ def main():
         hf_summary, hf_features = v.summary, v.features
 
         print(
-            f"[{k}] Sample inference on tensor shape {x.shape} returned summary ",
+            f"[{k}] HF inference on tensor shape {x.shape} returned summary ",
             f"with shape={hf_summary.shape} and std={hf_summary.std().item():.3}, ",
             f"features with shape={hf_features.shape} and std={hf_features.std().item():.3}",
         )
@@ -288,6 +292,12 @@ def main():
         torchhub_summary, torchhub_features = (
             torchhub_output[k].summary,
             torchhub_output[k].features,
+        )
+
+        print(
+            f"[{k}] TorchHub inference on tensor shape {x.shape} returned summary ",
+            f"with shape={torchhub_summary.shape} and std={torchhub_summary.std().item():.3}, ",
+            f"features with shape={torchhub_features.shape} and std={torchhub_features.std().item():.3}",
         )
 
         # Make sure the shapes are the same.
