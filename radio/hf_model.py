@@ -43,6 +43,33 @@ from .vitdet import apply_vitdet_arch, VitDetArgs
 from .extra_timm_models import *
 
 
+
+def rename_all_gamma_to_weight_with_proxy(module):
+    """
+    Renames all parameters named 'gamma' in a module (including submodules)
+    to 'weight' and sets up a property so that accesses to 'gamma' still work.
+    """
+    # Recursively iterate through submodules
+    for submodule_name, submodule in module.named_modules():
+        # Get all parameters within the current submodule
+        for param_name, param in list(submodule.named_parameters(recurse=False)):
+            if 'gamma' in param_name:
+                # Generate the new name by replacing 'gamma' with 'weight'
+                new_name = param_name.replace('gamma', 'weight')
+
+                # Remove the old parameter and assign it with the new name
+                delattr(submodule, param_name)
+                setattr(submodule, new_name, nn.Parameter(param.data))
+
+                # Define a property to proxy access to the renamed parameter
+                def make_property(old_name, new_name):
+                    return property(lambda self: getattr(self, new_name),
+                                    lambda self, value: setattr(self, new_name, value))
+
+                # Add the property to the submodule to proxy access to 'gamma'
+                setattr(submodule.__class__, param_name, make_property(param_name, new_name))
+
+
 class RADIOConfig(PretrainedConfig):
     """Pretrained Hugging Face configuration for RADIO models."""
 
@@ -58,6 +85,7 @@ class RADIOConfig(PretrainedConfig):
         vitdet_window_size: Optional[int] = None,
         feature_normalizer_config: Optional[dict] = None,
         inter_feature_normalizer_config: Optional[dict] = None,
+        rename_gamma_to_weight: bool = False,
         **kwargs,
     ):
         self.args = args
@@ -79,7 +107,9 @@ class RADIOConfig(PretrainedConfig):
         self.vitdet_window_size = vitdet_window_size
         self.feature_normalizer_config = feature_normalizer_config
         self.inter_feature_normalizer_config = inter_feature_normalizer_config
+        self.rename_gamma_to_weight = rename_gamma_to_weight
         super().__init__(**kwargs)
+
 
 
 class RADIOModel(PreTrainedModel):
@@ -148,6 +178,9 @@ class RADIOModel(PreTrainedModel):
             feature_normalizer=feature_normalizer,
             inter_feature_normalizer=inter_feature_normalizer,
         )
+
+        if config.rename_gamma_to_weight:
+            rename_all_gamma_to_weight_with_proxy(self.radio_model)
 
     @property
     def adaptors(self) -> nn.ModuleDict:
