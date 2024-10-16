@@ -19,7 +19,7 @@ from timm.models import clean_state_dict
 
 from radio.adaptor_registry import adaptor_registry
 from radio.common import DEFAULT_VERSION, RadioResource, RESOURCE_MAP
-from radio.enable_spectral_reparam import disable_spectral_reparam
+from radio.enable_spectral_reparam import disable_spectral_reparam, configure_spectral_reparam_from_args
 from radio.feature_normalizer import FeatureNormalizer, IntermediateFeatureNormalizer
 from radio.radio_model import RADIOModel, create_model_from_args
 from radio.input_conditioner import get_default_conditioner
@@ -51,11 +51,17 @@ def radio_model(
     else:
         state_dict = chk["state_dict"]
 
-    mod = create_model_from_args(chk["args"])
+    args = chk["args"]
+    mod = create_model_from_args(args)
+
+    mod_state_dict = get_prefix_state_dict(state_dict, "base_model.")
+
+    if args.spectral_reparam:
+        configure_spectral_reparam_from_args(mod, args, state_dict_guidance=mod_state_dict)
 
     state_dict = clean_state_dict(state_dict)
 
-    key_warn = mod.load_state_dict(get_prefix_state_dict(state_dict, "base_model."), strict=False)
+    key_warn = mod.load_state_dict(mod_state_dict, strict=False)
     if key_warn.missing_keys:
         warnings.warn(f'Missing keys in state dict: {key_warn.missing_keys}')
     if key_warn.unexpected_keys:
