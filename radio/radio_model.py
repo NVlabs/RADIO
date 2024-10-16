@@ -325,7 +325,4 @@ def create_model_from_args(args) -> nn.Module:
             num_registers=getattr(args, 'cpe_num_registers', None),
         )
 
-    if args.spectral_reparam:
-        configure_spectral_reparam_from_args(model, args)
-
     return model

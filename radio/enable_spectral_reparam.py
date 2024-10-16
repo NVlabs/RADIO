@@ -9,7 +9,7 @@
 from logging import getLogger
 import math
 import os
-from typing import List, Union, Tuple
+from typing import Dict, List, Optional, Union, Tuple
 from types import MethodType
 
 import torch
@@ -136,17 +136,27 @@ def enable_spectral_reparam(model: Union[nn.Module, List[nn.Module]],
                             eps: float = 1e-6,
                             init_norm_to_current: bool = False,
                             renorm_values: bool = True,
-                            renorm_mlp: bool = True):
+                            renorm_mlp: bool = True,
+                            state_dict_guidance: Optional[Dict[str, torch.Tensor]] = None):
     if isinstance(model, (list, tuple)):
-        for sub in model:
+        for i, sub in enumerate(model):
+            sub_sd = state_dict_guidance[i] if isinstance(state_dict_guidance, (list, tuple)) else state_dict_guidance
             enable_spectral_reparam(sub, n_power_iterations=n_power_iterations, eps=eps,
                                     init_norm_to_current=init_norm_to_current, renorm_values=renorm_values,
-                                    renorm_mlp=renorm_mlp)
+                                    renorm_mlp=renorm_mlp, state_dict_guidance=sub_sd)
         return
 
     print('Enabling spectral reparametrization')
     args = dict(n_power_iterations=n_power_iterations, dim=0, eps=eps, init_norm_to_current=init_norm_to_current)
     visited_prefixes = set()
+
+    def is_guidance_parametrized(name: str):
+        if state_dict_guidance is None:
+            return True
+
+        p_name = f'{name}.parametrizations'
+        is_prm = any(k for k in state_dict_guidance if k.startswith(p_name))
+        return is_prm
 
     def parametrize_linear(linear: nn.Linear):
         parametrize.register_parametrization(
@@ -161,36 +171,40 @@ def enable_spectral_reparam(model: Union[nn.Module, List[nn.Module]],
             continue
 
         if isinstance(mod, Attention) or name.endswith('.attn'):
-            parametrize.register_parametrization(
-                mod.qkv,
-                'weight',
-                _AttnSNReweight(mod.qkv.weight, renorm_values=renorm_values, **args),
-            )
-            if hasattr(mod, 'proj'):
+            if is_guidance_parametrized(f'{name}.qkv'):
+                parametrize.register_parametrization(
+                    mod.qkv,
+                    'weight',
+                    _AttnSNReweight(mod.qkv.weight, renorm_values=renorm_values, **args),
+                )
+            if hasattr(mod, 'proj') and is_guidance_parametrized(f'{name}.proj'):
                 parametrize_linear(mod.proj)
             visited_prefixes.add(name)
         elif name.endswith('mlp') and renorm_mlp and hasattr(mod, 'w12'):
-            parametrize.register_parametrization(
-                mod.w12,
-                'weight',
-                _ChunkedSNReweight(mod.w12.weight, num_chunks=2, **args),
-            )
-            parametrize_linear(mod.w3)
+            if is_guidance_parametrized(f'{name}.w12'):
+                parametrize.register_parametrization(
+                    mod.w12,
+                    'weight',
+                    _ChunkedSNReweight(mod.w12.weight, num_chunks=2, **args),
+                )
+            if is_guidance_parametrized(f'{name}.w3'):
+                parametrize_linear(mod.w3)
             visited_prefixes.add(name)
-        elif isinstance(mod, nn.Linear) and 'patch_generator' not in name:
+        elif isinstance(mod, nn.Linear) and 'patch_generator' not in name and is_guidance_parametrized(name):
             parametrize_linear(mod)
 
 
-def configure_spectral_reparam_from_args(model: nn.Module, args):
+def configure_spectral_reparam_from_args(model: nn.Module, args, state_dict_guidance: Optional[Dict[str, torch.Tensor]] = None):
     spectral_reparam = getattr(args, 'spectral_reparam', False)
     if isinstance(spectral_reparam, bool) and spectral_reparam:
-        enable_spectral_reparam(model, init_norm_to_current=True)
+        enable_spectral_reparam(model, init_norm_to_current=True, state_dict_guidance=state_dict_guidance)
     elif isinstance(spectral_reparam, dict):
         enable_spectral_reparam(
             model,
             n_power_iterations=spectral_reparam.get('n_power_iterations', 1),
             eps=spectral_reparam.get('eps', 1e-12),
             init_norm_to_current=True,
+            state_dict_guidance=state_dict_guidance,
         )
 
 
