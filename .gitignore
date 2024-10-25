@@ -2,3 +2,6 @@ __pycache__
 hf-checkpoints/
 vis_denoise/
 mmseg/work_dirs/
+wandb
+vis_videos
+vis_denoise
