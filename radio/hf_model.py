@@ -32,6 +32,7 @@ from .enable_cpe_support import enable_cpe
 from .enable_spectral_reparam import configure_spectral_reparam_from_args
 from .eradio_model import eradio
 from .feature_normalizer import FeatureNormalizer, IntermediateFeatureNormalizer
+from .forward_intermediates import forward_intermediates
 from .radio_model import create_model_from_args
 from .radio_model import RADIOModel as RADIOModelBase, Resolution
 from .input_conditioner import get_default_conditioner, InputConditioner
@@ -41,6 +42,7 @@ from .vitdet import apply_vitdet_arch, VitDetArgs
 
 # Register extra models
 from .extra_timm_models import *
+from .extra_models import *
 
 
 
