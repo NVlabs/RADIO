@@ -145,7 +145,14 @@ class RADIOModel(nn.Module):
         if fn is not None:
             fn()
 
-    def forward(self, x: torch.Tensor) -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
+    def forward(self, x: torch.Tensor, feature_fmt: str = 'NLC') -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
+        '''
+        Forward process for model.
+        Args:
+            x: Input tensor. Unless `make_preprocessor_external` has been called, then the dynamic range of `x` is expected to be `[0, 1]`,
+                             otherwise `x` is expected to be mean centered with unit standard deviation.
+            feature_format: ['NLC', 'NCHW'] - The output format for the features.
+        '''
         res_step = self.min_resolution_step
         if res_step is not None and (x.shape[-2] % res_step != 0 or x.shape[-1] % res_step != 0):
             raise ValueError('The input resolution must be a multiple of `self.min_resolution_step`. '
@@ -154,10 +161,10 @@ class RADIOModel(nn.Module):
 
         x = self.input_conditioner(x)
         y = self.model.forward_features(x)
-        ret = self._extract_final(x, y)
+        ret = self._extract_final(x, y, feature_fmt=feature_fmt)
         return ret
 
-    def _extract_final(self, x: torch.Tensor, y: torch.Tensor):
+    def _extract_final(self, x: torch.Tensor, y: torch.Tensor, feature_fmt: str = 'NLC'):
         if isinstance(self.model, VisionTransformer):
             patch_gen = getattr(self.model, "patch_generator", None)
             if patch_gen is not None:
@@ -198,7 +205,16 @@ class RADIOModel(nn.Module):
 
         all_feat = self.feature_normalizer(all_feat)
 
-        ret = RadioOutput(bb_summary.flatten(1), all_feat).to(torch.float32)
+        if feature_fmt == 'NCHW':
+            fmt_feat = (all_feat.reshape(all_feat.shape[0], x.shape[-2] // self.patch_size, x.shape[-1] // self.patch_size, all_feat.shape[2])
+                                .permute(0, 3, 1, 2)
+            )
+        elif feature_fmt == 'NLC':
+            fmt_feat = all_feat
+        else:
+            raise ValueError(f'Unsupported feature_fmt: {feature_fmt}. Must be one of ["NLC", "NCHW"]')
+
+        ret = RadioOutput(bb_summary.flatten(1), fmt_feat).to(torch.float32)
         if self.adaptors:
             ret = dict(backbone=ret)
             for name, adaptor in self.adaptors.items():
@@ -206,7 +222,7 @@ class RADIOModel(nn.Module):
                     summary = all_summary[:, adaptor.head_idx]
                 else:
                     summary = all_summary
-                ada_input = AdaptorInput(images=x, summary=summary.float(), features=all_feat)
+                ada_input = AdaptorInput(images=x, summary=summary.float(), features=all_feat, feature_fmt=feature_fmt, patch_size=self.patch_size)
                 v = adaptor(ada_input).to(torch.float32)
                 ret[name] = v
 
@@ -275,7 +291,7 @@ class RADIOModel(nn.Module):
         if intermediates_only:
             return radio_outputs
         else:
-            final = self._extract_final(x, final)
+            final = self._extract_final(x, final, feature_fmt=output_fmt)
             return final, radio_outputs
 
 

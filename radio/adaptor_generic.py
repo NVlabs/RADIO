@@ -44,4 +44,9 @@ class GenericAdaptor(AdaptorBase):
         summary = self.head_mlp(input.summary)
         feat = self.feat_mlp(input.features)
 
+        if input.feature_fmt == 'NCHW':
+            feat = (feat.reshape(feat.shape[0], input.images.shape[-2] // input.patch_size, input.images.shape[-1] // input.patch_size, feat.shape[2])
+                        .permute(0, 3, 1, 2)
+            )
+
         return RadioOutput(summary, feat)

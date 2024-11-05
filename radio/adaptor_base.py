@@ -6,7 +6,7 @@
 # distribution of this software and related documentation without an express
 # license agreement from NVIDIA CORPORATION is strictly prohibited.
 from argparse import Namespace
-from typing import NamedTuple
+from typing import NamedTuple, Optional
 
 import torch
 from torch import nn
@@ -17,6 +17,8 @@ class AdaptorInput(NamedTuple):
     images: torch.Tensor
     summary: torch.Tensor
     features: torch.Tensor
+    feature_fmt: str
+    patch_size: int
 
 
 class RadioOutput(NamedTuple):
