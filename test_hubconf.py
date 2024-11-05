@@ -22,3 +22,10 @@ if __name__ == "__main__":
         y_int4 = model.forward_intermediates(x, indices=[3, 5, 7], return_prefix_tokens=True, output_fmt='NCHW', aggregation='dense', intermediates_only=True, norm_alpha_scheme='pre-alpha')
         y_int5 = model.forward_intermediates(x, indices=[3, 5, 7], return_prefix_tokens=True, output_fmt='NCHW', aggregation='dense', intermediates_only=True, norm_alpha_scheme='none')
         pass
+
+    model = radio_model(version=sys.argv[1] if len(sys.argv) > 1 else '', adaptor_names=['clip', 'dino_v2']).cuda()
+
+    with torch.no_grad():
+        y = model(x, feature_fmt='NCHW')
+        assert y['backbone'].features.ndim == 4 and y['clip'].features.ndim == 4 and y['dino_v2'].features.ndim == 4
+        pass

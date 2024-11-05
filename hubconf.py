@@ -85,11 +85,13 @@ def radio_model(
     mod.to(dtype=dtype)
     conditioner.dtype = dtype
 
-    summary_idxs = torch.tensor([
-        i
-        for i, t in enumerate(chk["args"].teachers)
-        if t.get("use_summary", True)
-    ], dtype=torch.int64)
+    name_to_idx_map = dict()
+    for i, t in enumerate(chk['args'].teachers):
+        if t.get('use_summary', True):
+            name = t['name']
+            if name not in name_to_idx_map:
+                name_to_idx_map[name] = i
+    summary_idxs = torch.tensor(sorted(name_to_idx_map.values()), dtype=torch.int64)
 
     if adaptor_names is None:
         adaptor_names = []

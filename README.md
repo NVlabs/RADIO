@@ -58,20 +58,36 @@ The latest model version is RADIOv2. We will update the description once new mod
 To load in the TorchHub, use the following command:
 
 ```Python
+from PIL import Image
+
 import torch
+from torch.nn import functional as F
+from torchvision.transforms.functional import pil_to_tensor
 model_version="radio_v2.5-h" # for RADIOv2.5-H model (ViT-H/16)
 # model_version="radio_v2.5-l" # for RADIOv2.5-L model (ViT-L/16)
 #model_version="radio_v2.5-b" # for RADIOv2.5-B model (ViT-B/16)
 #model_version="e-radio_v2" # for E-RADIO
 model = torch.hub.load('NVlabs/RADIO', 'radio_model', version=model_version, progress=True, skip_validation=True)
 model.cuda().eval()
-x = torch.rand(1, 3, 512, 512, device='cuda')
+
+x = Image.open('assets/radio_overview_github.png').convert('RGB')
+x = pil_to_tensor(x).to(dtype=torch.float32, device='cuda')
+x.div_(255.0)  # RADIO expects the input values to be between 0 and 1
+x = x.unsqueeze(0) # Add a batch dimension
+
+nearest_res = model.get_nearest_supported_resolution(*x.shape[-2:])
+x = F.interpolate(x, nearest_res, mode='bilinear', align_corners=False)
 
 if "e-radio" in model_version:
     model.model.set_optimal_window_size(x.shape[2:]) #where it expects a tuple of (height, width) of the input image.
 
 # RADIO expects the input to have values between [0, 1]. It will automatically normalize them to have mean 0 std 1.
 summary, spatial_features = model(x)
+
+# By default, RADIO will return the spatial_features in NLC format, with L being a combined height/width dimension.
+# You can alternatively ask for the features in the more computer-vision-convenient format NCHW the following way:
+summary, spatial_features = model(x, feature_fmt='NCHW')
+assert spatial_features.ndim == 4
 
 # RADIO also supports running in mixed precision:
 with torch.autocast('cuda', dtype=torch.bfloat16):
