@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 import os
-from typing import Tuple
+from types import MethodType
+from typing import Optional, Tuple
 
 import torch
 from torch import nn
@@ -11,10 +12,32 @@ from timm.data import IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD, OPENAI_CLIP_M
 from radio.adaptor_base import RadioOutput
 from radio.input_conditioner import InputConditioner
 
+
+def dv2_sdpa(self, x: torch.Tensor) -> torch.Tensor:
+    B, N, C = x.shape
+    qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
+
+    q, k, v = qkv[0], qkv[1], qkv[2]
+    x = F.scaled_dot_product_attention(
+        q, k, v,
+        is_causal=False,
+        dropout_p=self.attn_drop.p if self.training else 0.,
+        scale=self.scale,
+    )
+    x = x.transpose(1, 2).reshape(B, N, C)
+    x = self.proj(x)
+    x = self.proj_drop(x)
+    return x
+
+
 class DinoWrapper(nn.Module):
     def __init__(self, dino_model: nn.Module):
         super().__init__()
         self.inner = dino_model
+        for n, m in self.inner.named_modules():
+            if n.endswith('.attn'):
+                m.old_forward = m.forward
+                m.forward = MethodType(dv2_sdpa, m)
 
     @property
     def patch_size(self):
@@ -235,6 +258,7 @@ class OpenAI_CLIP_VisionAdapter(nn.Module):
 class ModelInfo:
     model_class: str
     model_subtype: str
+    checkpoint: Optional[dict] = None
 
 
 def load_model(version: str, adaptor_names: str = None, use_huggingface: bool = False, use_local_lib: bool = True,
@@ -257,15 +281,16 @@ def load_model(version: str, adaptor_names: str = None, use_huggingface: bool = 
             model: nn.Module = AutoModel.from_pretrained(hf_repo, config=config, trust_remote_code=True, **kwargs)
         elif use_local_lib:
             from hubconf import radio_model
-            model = radio_model(version=version, progress=True, adaptor_names=adaptor_names, **kwargs)
+            model, chk = radio_model(version=version, progress=True, adaptor_names=adaptor_names, return_checkpoint=True, **kwargs)
         else:
-            model: nn.Module = torch.hub.load(torchhub_repo, 'radio_model', version=version, progress=True,
+            model, chk = torch.hub.load(torchhub_repo, 'radio_model', version=version, progress=True,
                                               adaptor_names=adaptor_names, return_spatial_features=return_spatial_features,
-                                              force_reload=force_reload, **kwargs,
+                                              force_reload=force_reload,
+                                              return_checkpoint=True, **kwargs,
             )
 
         preprocessor = model.make_preprocessor_external()
-        info = ModelInfo(model_class='RADIO', model_subtype=version.replace('/', '_'))
+        info = ModelInfo(model_class='RADIO', model_subtype=version.replace('/', '_'), checkpoint=chk)
     elif version.startswith('dinov2'):
         model = torch.hub.load('facebookresearch/dinov2', version, pretrained=True, force_reload=force_reload, **kwargs)
         model = DinoWrapper(model)

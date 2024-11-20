@@ -19,6 +19,7 @@ from typing import Any, Dict, Iterable, List, Tuple
 import cv2
 import numpy as np
 import torch
+from timm.layers import to_2tuple
 from torch import nn
 import torch.distributed as dist
 from torch.utils.data import DataLoader
@@ -32,7 +33,7 @@ from einops import rearrange
 from datasets import load_dataset_builder, load_dataset
 from datasets.distributed import split_dataset_by_node
 
-from common import rank_print, load_model, get_standard_transform, collate, ResizeTransform
+from common import rank_print, load_model, get_standard_transform, collate, ResizeTransform, PadToSize
 
 try:
     import wandb
@@ -65,6 +66,7 @@ def main(rank: int = 0, world_size: int = 1):
     parser.add_argument('--split', default='validation',
                         help='The dataset split to use.'
     )
+    parser.add_argument('--teacher', default='dino_v2', type=str, help='Which teacher to test mode switching against')
     parser.add_argument('-n', default=100, type=int, help='The number of samples to load')
     parser.add_argument('--name', default='', type=str)
 
@@ -75,17 +77,35 @@ def main(rank: int = 0, world_size: int = 1):
     random.seed(42 + rank)
 
     rank_print('Loading RADIO...')
-    radio, radio_preprocessor, _ = load_model(args.version, adaptor_names='dino_v2')
+    radio, radio_preprocessor, radio_info = load_model(args.version, adaptor_names=args.teacher.split(',')[0])
     rank_print('Done')
 
-    rank_print('Loading DINOv2...')
-    dinov2, dinov2_preprocessor, _ = load_model('dinov2_vitg14_reg')
+    rank_print(f'Loading {args.teacher}...')
+
+    teacher_args = next(t for t in radio_info.checkpoint['args'].teachers if args.teacher.startswith(t['name']))
+    teacher_name = teacher_args['name']
+
+    multi_res_teacher = False
+    embed_teacher = False
+    teacher_input_size = teacher_args['input_size']
+    if teacher_args['type'] == 'open_clip':
+        teacher, teacher_preprocessor, _ = load_model(f"open_clip,{teacher_args['model']},{teacher_args['pretrained']}")
+    elif teacher_args['type'] == 'openai_clip':
+        teacher, teacher_preprocessor, _ = load_model(f"openai_clip,{teacher_args['model']}")
+    elif teacher_args['type'] == 'dino_v2':
+        multi_res_teacher = True
+        teacher, teacher_preprocessor, _ = load_model(teacher_args['model'])
+    elif teacher_args['type'] == 'sam':
+        teacher, teacher_preprocessor, _ = load_model(args.teacher)
+        embed_teacher = True
+        multi_res_teacher = True
+    teacher_patch_size = teacher.patch_size
     rank_print('Done')
 
     radio.cuda().eval()
     radio_preprocessor.cuda().eval()
-    dinov2.cuda().eval()
-    dinov2_preprocessor.cuda().eval()
+    teacher.cuda().eval()
+    teacher_preprocessor.cuda().eval()
 
     first_res = int(math.floor(224 / radio.patch_size) * radio.patch_size)
     final_res = int(math.ceil(1024 / radio.patch_size) * radio.patch_size)
@@ -94,9 +114,10 @@ def main(rank: int = 0, world_size: int = 1):
     # Get the subset of resolutions for this rank
     resolutions = resolutions[rank::world_size]
 
-    transform_dv2 = transforms.Compose([
-        ResizeTransform([518, 518], resize_multiple=14),
-        transforms.CenterCrop([518, 518]),
+    transform_teacher = transforms.Compose([
+        ResizeTransform(to_2tuple(teacher_input_size), resize_multiple=teacher_patch_size),
+        transforms.CenterCrop(to_2tuple(teacher_input_size)),
+        PadToSize(to_2tuple(teacher_input_size)) if embed_teacher else nn.Identity(),
         transforms.ToImage(),
         transforms.ToDtype(torch.float32, scale=True),
     ])
@@ -122,13 +143,16 @@ def main(rank: int = 0, world_size: int = 1):
     bins = dict()
 
     for res in tqdm(resolutions, desc="Resolutions", disable=rank > 0, position=0, leave=True):
-        dv2_res = res * 14 // radio.patch_size
-        update_resolution(transform_dv2, dv2_res)
+        if multi_res_teacher:
+            curr_teacher_res = res * teacher_patch_size // radio.patch_size
+            update_resolution(transform_teacher, curr_teacher_res)
+        else:
+            curr_teacher_res = teacher_input_size
 
         update_resolution(transform, res)
 
-        dino_features = []
-        res_features = []
+        teacher_features = []
+        student_features = []
 
         cov_bb: torch.Tensor = None
         cov_bb_ct = 0
@@ -137,20 +161,24 @@ def main(rank: int = 0, world_size: int = 1):
             if i == args.n:
                 break
 
-            image_dv2 = transform_dv2(sample['image'])
-            image_dv2 = image_dv2.unsqueeze(0).cuda()
-            input_dv2 = dinov2_preprocessor(image_dv2)
-            _, dv2_features = dinov2(input_dv2)
-
-            ncol = dv2_res // 14
-            dv2_features = rearrange(dv2_features, 'b (h w) d -> b d h w', h=ncol, w=ncol)
-
             image = transform(sample['image'])
+            image_dv2 = transform_teacher(sample['image'])
+            image_dv2 = image_dv2.unsqueeze(0).cuda()
+            input_dv2 = teacher_preprocessor(image_dv2)
+            _, curr_teacher_features = teacher(input_dv2)
+
+            ncol = (curr_teacher_res if not embed_teacher else teacher_input_size) // teacher_patch_size
+            curr_teacher_features = rearrange(curr_teacher_features, 'b (h w) d -> b d h w', h=ncol, w=ncol)
+
+            if embed_teacher:
+                ncol = curr_teacher_res // teacher_patch_size
+                curr_teacher_features = curr_teacher_features[..., :ncol, :ncol]
+
             image = image.unsqueeze(0).cuda()
             input_radio = radio_preprocessor(image)
             r_out = radio(input_radio)
             _, bb_feat = r_out['backbone']
-            _, features = r_out['dino_v2']
+            _, curr_student_features = r_out[teacher_name]
 
             cov_curr = bb_feat.flatten(0, 1)
             cov_bb_ct += cov_curr.shape[0]
@@ -159,35 +187,35 @@ def main(rank: int = 0, world_size: int = 1):
             else:
                 cov_bb.addmm_(cov_curr.T, cov_curr)
 
-            ncol = int(round(math.sqrt(features.shape[1])))
-            features = rearrange(features, 'b (h w) d -> b d h w', h=ncol, w=ncol)
+            ncol = int(round(math.sqrt(curr_student_features.shape[1])))
+            curr_student_features = rearrange(curr_student_features, 'b (h w) d -> b d h w', h=ncol, w=ncol)
 
-            dino_features.append(dv2_features)
-            res_features.append(features)
+            teacher_features.append(curr_teacher_features)
+            student_features.append(curr_student_features)
 
             del r_out
             del bb_feat
-            del features
+            del curr_student_features
 
-        dino_features = torch.cat(dino_features)
-        res_features = torch.cat(res_features)
+        teacher_features = torch.cat(teacher_features)
+        student_features = torch.cat(student_features)
 
         cov_bb /= cov_bb_ct - 1
 
         # if rank == 0:
         #     print(f'Backbone Feature Variance:\n{cov_bb.diag()}')
 
-        res_matched = res_features
-        if res_features.shape != dino_features.shape:
-            res_matched = F.interpolate(res_features, size=dino_features.shape[-2:], mode='bilinear', align_corners=True)
+        res_matched_teacher = teacher_features
+        if student_features.shape != teacher_features.shape:
+            res_matched_teacher = F.interpolate(teacher_features, size=student_features.shape[-2:], mode='bilinear', align_corners=True)
 
-        cos_error = 1 - F.cosine_similarity(res_matched, dino_features, dim=1).mean()
-        mse_error = F.mse_loss(res_matched, dino_features, reduction='mean')
+        stud_variance = student_features.var()
+        teacher_variance = teacher_features.var()
 
-        stud_variance = res_features.var()
-        dino_variance = dino_features.var()
+        cos_error = 1 - F.cosine_similarity(student_features, res_matched_teacher, dim=1).mean()
+        fidelity = teacher_variance / F.mse_loss(student_features, res_matched_teacher, reduction='mean')
 
-        bins[res] = (cos_error.item(), mse_error.item(), stud_variance.item(), dino_variance.item())
+        bins[res] = (cos_error.item(), fidelity.item(), stud_variance.item(), teacher_variance.item())
 
     if dist.is_initialized():
         all_bins = [None for _ in range(world_size)]
@@ -204,10 +232,11 @@ def main(rank: int = 0, world_size: int = 1):
 
     if not args.name and not os.path.isfile(args.version):
         args.name = args.version
-    suffix = f'_{args.name}' if args.name else ''
+    suffix = f'_{args.name.replace("_", "-")}' if args.name else ''
+    f_teacher_name = teacher_name.replace('_', '-')
 
-    with open(f'mode_switching_results{suffix}.csv', 'w') as fd:
-        fd.write('Resolution,Cos Error,MSE Error,Pred Variance,DINO Variance\n')
+    with open(f'mode-switching_{f_teacher_name}{suffix}.csv', 'w') as fd:
+        fd.write('Resolution,Cos Fidelity,Fidelity,Pred Variance,Teacher Variance\n')
         for res, t in bins.items():
             parts = ','.join(f'{v:.4f}' for v in t)
             fd.write(f'{res},{parts}\n')
