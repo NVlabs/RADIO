@@ -146,6 +146,11 @@ export PYTHONPATH=.:examples
 # python examples/visualize_features.py --dataset $DATASET --model-version radio_v2.5-l -n $N --resolution 1024 1024 --adaptor-name sam --output-dir $ROOT/radiov2.5/vit-l/1024_sam
 # python examples/visualize_features.py --dataset $DATASET --model-version radio_v2.5-l -n $N --resolution 2048 2048 --adaptor-name sam --output-dir $ROOT/radiov2.5/vit-l/2048_sam
 
+python examples/visualize_features.py --dataset $DATASET --model-version radio_v2.5-h -n $N --resolution 256 --output-dir $ROOT/radiov2.5/vit-h/256min
+python examples/visualize_features.py --dataset $DATASET --model-version radio_v2.5-h -n $N --resolution 512 --output-dir $ROOT/radiov2.5/vit-h/512min
+python examples/visualize_features.py --dataset $DATASET --model-version radio_v2.5-h -n $N --resolution 768 --output-dir $ROOT/radiov2.5/vit-h/768min
+python examples/visualize_features.py --dataset $DATASET --model-version radio_v2.5-h -n $N --resolution 1024 --output-dir $ROOT/radiov2.5/vit-h/1024min
+python examples/visualize_features.py --dataset $DATASET --model-version radio_v2.5-h -n $N --resolution 2048 --output-dir $ROOT/radiov2.5/vit-h/2048min
 
 # python examples/visualize_features.py --dataset $DATASET --model-version radio_v2.5-h -n $N --resolution 256 256   --adaptor-name dino_v2 --output-dir $ROOT/radiov2.5/vit-h/256_dinov2
 # python examples/visualize_features.py --dataset $DATASET --model-version radio_v2.5-h -n $N --resolution 432 432   --adaptor-name dino_v2 --output-dir $ROOT/radiov2.5/vit-h/432_dinov2

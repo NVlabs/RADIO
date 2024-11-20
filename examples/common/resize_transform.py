@@ -1,6 +1,7 @@
-from typing import Iterable, List, Dict, Any
+from typing import Iterable, List, Dict, Any, Tuple, Union
 from PIL import Image
 
+from timm.layers import to_2tuple
 import torch
 
 import torchvision.transforms.v2 as transforms
@@ -96,6 +97,32 @@ class PadToSquare(transforms.Transform):
         ret = transforms.functional.pad(inpt, size, fill=self.pad_mean)
         return ret
 
+
+class PadToSize(transforms.Transform):
+    def __init__(self, target_size: Union[int, Tuple[int, int]], pad_mean = None):
+        super().__init__()
+        self.target_size = to_2tuple(target_size)
+
+        if torch.is_tensor(pad_mean):
+            pad_mean = pad_mean.flatten().tolist()
+        elif pad_mean is None:
+            pad_mean = 0
+
+        self.pad_mean = pad_mean
+
+    def _get_params(self, flat_inputs: List[Any]) -> Dict[str, Any]:
+        height, width = transforms._utils.query_size(flat_inputs)
+
+        pad_h = self.target_size[0] - height
+        pad_w = self.target_size[1] - width
+
+        return dict(size=(0, 0, pad_w, pad_h))
+
+    def _transform(self, inpt: Any, params: Dict[str, Any]) -> Any:
+        size = params['size']
+
+        ret = transforms.functional.pad(inpt, size, fill=self.pad_mean)
+        return ret
 
 
 def get_standard_transform(resolution: List[int], resize_multiple: int, preprocessor = None, max_dim: bool = False, pad_mean = None):

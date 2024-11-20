@@ -31,6 +31,7 @@ def radio_model(
     progress: bool = True,
     adaptor_names: Union[str, List[str]] = None,
     vitdet_window_size: Optional[int] = None,
+    return_checkpoint: bool = False,
     **kwargs,
 ) -> RADIOModel:
     if not version:
@@ -167,6 +168,8 @@ def radio_model(
             ),
         )
 
+    if return_checkpoint:
+        return radio, chk
     return radio
 
 
