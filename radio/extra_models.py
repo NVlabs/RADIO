@@ -152,6 +152,14 @@ class DinoWrapper(nn.Module):
 
 
 @register_model
+def dino_v2_l_student(**kwargs):
+    model = _load_dino_v2('dinov2_vitl14_reg', pretrained=False)
+    model = DinoWrapper(model)
+
+    return model
+
+
+@register_model
 def dino_v2_g_student(**kwargs):
     model = _load_dino_v2('dinov2_vitg14_reg', pretrained=False)
     model = DinoWrapper(model)
