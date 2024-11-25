@@ -59,6 +59,8 @@ def rename_all_gamma_to_weight_with_proxy(module):
                 # Generate the new name by replacing 'gamma' with 'weight'
                 new_name = param_name.replace('gamma', 'weight')
 
+                print("In submodule {}: Renaming '{}' to '{}'".format(submodule_name, param_name, new_name))
+
                 # Remove the old parameter and assign it with the new name
                 delattr(submodule, param_name)
                 setattr(submodule, new_name, nn.Parameter(param.data))
