@@ -56,7 +56,7 @@ def main(rank: int = 0, world_size: int = 1):
     parser.add_argument('--split', default='validation',
                         help='The dataset split to use.'
     )
-    parser.add_argument('--resize-multiple', type=int, default=16,
+    parser.add_argument('--resize-multiple', type=int, default=None,
                         help='Resize images with dimensions a multiple of this value.'
                              ' This should be equal to the patch size of a ViT (e.g. RADIOv1)'
     )

@@ -1,13 +1,19 @@
 from distutils.version import LooseVersion
+from types import MethodType
 from typing import List, Optional, Tuple, Union
 import warnings
 
 import torch
 from torch import nn
+import torch.nn.functional as F
 
 from timm.models.registry import register_model
+from timm.data.constants import IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD
 
 from .forward_intermediates import forward_intermediates
+from .input_conditioner import InputConditioner
+
+_has_torch_sdpa = hasattr(F, 'scaled_dot_product_attention')
 
 
 class PaliGemmaWrapper(nn.Module):
@@ -74,15 +80,38 @@ def paligemma_896_student(**kwargs):
     return model
 
 
+def dv2_sdpa(self, x: torch.Tensor) -> torch.Tensor:
+    B, N, C = x.shape
+    qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
+
+    q, k, v = qkv[0], qkv[1], qkv[2]
+    x = F.scaled_dot_product_attention(
+        q, k, v,
+        is_causal=False,
+        dropout_p=self.attn_drop.p if self.training else 0.,
+        scale=self.scale,
+    )
+    x = x.transpose(1, 2).reshape(B, N, C)
+    x = self.proj(x)
+    x = self.proj_drop(x)
+    return x
+
+
 def _load_dino_v2(dino_v2_model, cache_dir: Optional[str] = None, pretrained=True, **kwargs):
     if cache_dir:
         torch.hub.set_dir(cache_dir)
-    model = torch.hub.load(
+    model: nn.Module = torch.hub.load(
         'facebookresearch/dinov2',
         dino_v2_model,
         pretrained=pretrained,
         # **kwargs,
     )
+
+    if _has_torch_sdpa:
+        for n, m in model.named_modules():
+            if n.endswith('.attn'):
+                m.forward = MethodType(dv2_sdpa, m)
+
     return model
 
 
@@ -151,17 +180,25 @@ class DinoWrapper(nn.Module):
         )
 
 
-@register_model
-def dino_v2_l_student(**kwargs):
-    model = _load_dino_v2('dinov2_vitl14_reg', pretrained=False)
+def _dino_student(arch: str, **kwargs):
+    model = _load_dino_v2(arch, pretrained=False)
     model = DinoWrapper(model)
+
+    conditioner = InputConditioner(
+        input_scale=1.0,
+        norm_mean=IMAGENET_DEFAULT_MEAN,
+        norm_std=IMAGENET_DEFAULT_STD,
+    )
+
+    model.input_conditioner = conditioner
 
     return model
 
+
+@register_model
+def dino_v2_l_student(**kwargs):
+    return _dino_student('dinov2_vitl14_reg', **kwargs)
 
 @register_model
 def dino_v2_g_student(**kwargs):
-    model = _load_dino_v2('dinov2_vitg14_reg', pretrained=False)
-    model = DinoWrapper(model)
-
-    return model
+    return _dino_student('dinov2_vitg14_reg', **kwargs)
