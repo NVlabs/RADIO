@@ -96,7 +96,6 @@ def dv2_sdpa(self, x: torch.Tensor) -> torch.Tensor:
     x = self.proj_drop(x)
     return x
 
-
 def _load_dino_v2(dino_v2_model, cache_dir: Optional[str] = None, pretrained=True, **kwargs):
     if cache_dir:
         torch.hub.set_dir(cache_dir)
@@ -113,7 +112,6 @@ def _load_dino_v2(dino_v2_model, cache_dir: Optional[str] = None, pretrained=Tru
                 m.forward = MethodType(dv2_sdpa, m)
 
     return model
-
 
 class DinoWrapper(nn.Module):
     def __init__(self, dino_model: nn.Module):
@@ -181,7 +179,11 @@ class DinoWrapper(nn.Module):
 
 
 def _dino_student(arch: str, **kwargs):
-    model = _load_dino_v2(arch, pretrained=False)
+    from . import dinov2_arch
+
+    factory = getattr(dinov2_arch, arch)
+    model = factory()
+
     model = DinoWrapper(model)
 
     conditioner = InputConditioner(
