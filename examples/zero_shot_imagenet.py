@@ -80,6 +80,7 @@ def main(rank: int = 0, world_size: int = 1):
     parser.add_argument('--torchhub-repo',
                         help="Path to the Torchhub repo", default="NVlabs/RADIO"
     )
+    parser.add_argument('--sweep', default=False, action='store_true')
     parser.add_argument('--use-huggingface', default=False, action='store_true',
                         help='Use the huggingface model')
     parser.add_argument('--csv-out', type=str, default=None,
@@ -99,26 +100,10 @@ def main(rank: int = 0, world_size: int = 1):
     ds_builder.download_and_prepare()
     num_examples = ds_builder.info.splits[args.split].num_examples
 
-    if args.resolution is None:
-        args.resolution = (model.preferred_resolution.height, model.preferred_resolution.width)
+
 
     if args.resize_multiple is None:
         args.resize_multiple = getattr(model, 'min_resolution_step', model.patch_size)
-
-    transform = get_standard_transform(args.resolution, args.resize_multiple, preprocessor=preprocessor)
-    dataset = ds_builder.as_dataset(split=args.split)
-    dataset = dataset.to_iterable_dataset(num_shards=world_size * max(1, args.workers))
-    dataset = split_dataset_by_node(dataset, rank=rank, world_size=world_size)
-    dataset = dataset.map(lambda ex: dict(image=transform(ex['image']), label=torch.as_tensor(ex['label'], dtype=torch.int64)))
-
-    loader = DataLoader(dataset, batch_size=args.batch_size, shuffle=False,
-                        num_workers=args.workers, collate_fn=collate,
-                        pin_memory=args.workers > 0,
-                        drop_last=False,
-    )
-    num_steps = round_up(num_examples, args.batch_size * world_size)
-    rank_print('Done')
-    rank_print(f'Description: {ds_builder.info.description}')
 
     rank_print('Building Zero Shot Classifier...')
     adaptor = model.adaptors[args.adaptor_name] if hasattr(model, 'adaptors') else model
@@ -127,49 +112,77 @@ def main(rank: int = 0, world_size: int = 1):
     ).float()
     rank_print('Done')
 
-    rank_print('Classifying...')
-    topks = {
-        k: torch.tensor(0.0, dtype=torch.float32, device=device)
-        for k in (1, 5)
-    }
-    num_processed = 0
-    with torch.inference_mode(), tqdm(total=num_examples, disable=rank > 0) as t:
-        for batches in loader:
-            for images, targets in batches:
-                images = images.to(device=device, non_blocking=True)
-                targets = targets.to(device=device, non_blocking=True)
+    # sweep through all resolutions from 224 to 1024 in steps of 32
+    if args.sweep:
+        resolutions = list(range(224, 1024+1, 32))
+    else:
+        if args.resolution is None:
+            args.resolution = (model.preferred_resolution.height, model.preferred_resolution.width)
+        resolutions = [args.resolution]
+    for resolution in resolutions:
+        if isinstance(resolution, int):
+            resolution = (resolution, resolution)
+        transform = get_standard_transform(resolution, args.resize_multiple, preprocessor=preprocessor)
+        dataset = ds_builder.as_dataset(split=args.split)
+        dataset = dataset.to_iterable_dataset(num_shards=world_size * max(1, args.workers))
+        dataset = split_dataset_by_node(dataset, rank=rank, world_size=world_size)
+        dataset = dataset.map(lambda ex: dict(image=transform(ex['image']), label=torch.as_tensor(ex['label'], dtype=torch.int64)))
 
-                with torch.autocast(device.type, dtype=torch.bfloat16, enabled=args.amp):
-                    output = model(images)
-                    summary = output[args.adaptor_name].summary
-                    summary = F.normalize(summary, dim=-1)
+        loader = DataLoader(dataset, batch_size=args.batch_size, shuffle=False,
+                            num_workers=args.workers, collate_fn=collate,
+                            pin_memory=args.workers > 0,
+                            drop_last=False,
+        )
+        num_steps = round_up(num_examples, args.batch_size * world_size)
+        rank_print('Done')
+        rank_print(f'Description: {ds_builder.info.description}')
 
-                    logits = summary.to(classifier.dtype) @ classifier
+        rank_print(f'Classifying at resolution={resolution}...')
+        topks = {
+            k: torch.tensor(0.0, dtype=torch.float32, device=device)
+            for k in (1, 5)
+        }
+        num_processed = 0
+        with torch.inference_mode(), tqdm(total=num_examples, disable=rank > 0) as t:
+            for batches in loader:
+                for images, targets in batches:
+                    images = images.to(device=device, non_blocking=True)
+                    targets = targets.to(device=device, non_blocking=True)
 
-                    accs = accuracy(logits, targets, topk=topks.keys())
-                    for k, acc in zip(topks.keys(), accs):
-                        topks[k].add_(acc * images.shape[0])
-                    num_processed += images.shape[0]
+                    with torch.autocast(device.type, dtype=torch.bfloat16, enabled=args.amp):
+                        output = model(images)
+                        summary = output[args.adaptor_name].summary
+                        summary = F.normalize(summary, dim=-1)
 
-            t.set_postfix({'Rank': '0', **{f'Top-{k}': f'{v.item() / num_processed:.03f}' for k, v in topks.items()}})
-            t.update(world_size * args.batch_size)
+                        logits = summary.to(classifier.dtype) @ classifier
 
-    if world_size > 1:
-        rank_print('\tWaiting for all ranks to complete...')
-        num_processed = torch.tensor(num_processed, device=device)
-        dist.reduce(num_processed, dst=0, op=dist.ReduceOp.SUM)
+                        accs = accuracy(logits, targets, topk=topks.keys())
+                        for k, acc in zip(topks.keys(), accs):
+                            topks[k].add_(acc * images.shape[0])
+                        num_processed += images.shape[0]
 
+                t.set_postfix({'Rank': '0', **{f'Top-{k}': f'{v.item() / num_processed:.03f}' for k, v in topks.items()}})
+                t.update(world_size * args.batch_size)
+
+        if world_size > 1:
+            rank_print('\tWaiting for all ranks to complete...')
+            num_processed = torch.tensor(num_processed, device=device)
+            dist.reduce(num_processed, dst=0, op=dist.ReduceOp.SUM)
+
+            for k, acc in topks.items():
+                dist.reduce(acc, dst=0, op=dist.ReduceOp.SUM)
+            rank_print('\tDone')
+        rank_print('Done')
+
+        rank_print(f'Resolution: {args.resolution}')
+        rank_print('Accuracy:')
         for k, acc in topks.items():
-            dist.reduce(acc, dst=0, op=dist.ReduceOp.SUM)
-        rank_print('\tDone')
-    rank_print('Done')
+            acc = (acc / num_processed).item()
 
-    rank_print(f'Resolution: {args.resolution}')
-    rank_print('Accuracy:')
-    for k, acc in topks.items():
-        acc = (acc / num_processed).item()
+            rank_print(f'\tResolution: {resolution} Top {k}: {acc:.3f}')
 
-        rank_print(f'\tTop {k}: {acc:.3f}')
+        del loader
+        del dataset
 
         if rank == 0 and k == 1 and args.csv_out:
             with open(args.csv_out, 'a') as fd:
