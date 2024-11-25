@@ -86,6 +86,14 @@ def main():
     checkpoint = torch.load(args.checkpoint_path, map_location="cpu")
     model_args = checkpoint["args"]
 
+    # Remove invalid identifier.
+    if hasattr(model_args, "enable_cudnn_attention"):
+        print(f'Removing attribute: enable-cudnn-attention!')
+        delattr(model_args, "enable-cudnn-attention")
+    if hasattr(model_args, "device"):
+        print(f'Removing attribute: device!')
+        delattr(model_args, "device")
+
     # Extract the state dict from the checkpoint.
     if "state_dict_ema" in checkpoint:
         state_dict = checkpoint["state_dict_ema"]
@@ -178,8 +186,11 @@ def main():
             "rot_per_layer": inter_feat_norm_sd['rotation'].ndim == 3,
         }
 
+    model_vars = vars(model_args)
+    model_vars.pop('enable-cudnn-attention', None)
+
     radio_config = RADIOConfig(
-        vars(model_args),
+        model_vars,
         version=args.version,
         adaptor_names=adaptor_names,
         adaptor_configs=adaptor_configs,
@@ -263,9 +274,6 @@ def main():
         f"Intermediates inference returned ",
         f"features with shape={intermediates[0].features.shape} and std={intermediates[0].features.std().item():.3}",
     )
-    print("diff norm", (intermediates[0].features- hf_output["backbone"].features).norm())
-    print("std", intermediates[0].features.std().item(), hf_output["backbone"].features.std().item())
-    print("mean", intermediates[0].features.mean().item(), hf_output["backbone"].features.mean().item())
     #assert torch.allclose(intermediates[0].features, hf_output["backbone"].features, atol=1e-4)
 
     # Infer using TorchHub model.
