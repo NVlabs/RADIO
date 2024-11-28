@@ -64,3 +64,11 @@ def vit_huge_patch16_224_mlpnorm(pretrained=False, **kwargs) -> VisionTransforme
             m.norm = nn.LayerNorm(m.fc1.out_features)
 
     return model
+
+
+@register_model
+def vit_bigG_patch14_224(pretrained=False, **kwargs) -> VisionTransformer:
+    model_args = dict(patch_size=14, embed_dim=1664, depth=48, num_heads=16, init_values=1e-6)
+    model = _create_vision_transformer('vit_bigG_patch14', pretrained=False, **dict(model_args, **kwargs))
+    return model
+
