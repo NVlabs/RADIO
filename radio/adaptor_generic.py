@@ -41,8 +41,10 @@ class GenericAdaptor(AdaptorBase):
             )
 
     def forward(self, input: AdaptorInput) -> RadioOutput:
-        summary = self.head_mlp(input.summary)
-        feat = self.feat_mlp(input.features)
+        # Convert input'd type to the type of the first parameter of the adaptor.
+        first_param = next(self.parameters())
+        summary = self.head_mlp(input.summary.to(dtype=first_param.dtype)).to(dtype=input.summary.dtype)
+        feat = self.feat_mlp(input.features.to(dtype=first_param.dtype)).to(dtype=input.features.dtype)
 
         if input.feature_fmt == 'NCHW':
             feat = (feat.reshape(feat.shape[0], input.images.shape[-2] // input.patch_size, input.images.shape[-1] // input.patch_size, feat.shape[2])
