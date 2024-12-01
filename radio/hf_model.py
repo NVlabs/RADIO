@@ -28,6 +28,7 @@ from .adaptor_generic import GenericAdaptor, AdaptorBase
 from .adaptor_mlp import create_mlp_from_config
 from .adaptor_registry import adaptor_registry
 from .cls_token import ClsToken
+from .dinov2_arch import dinov2_vitg14_reg
 from .enable_cpe_support import enable_cpe
 from .enable_spectral_reparam import configure_spectral_reparam_from_args
 from .eradio_model import eradio
