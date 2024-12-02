@@ -201,8 +201,6 @@ class RADIOModel(nn.Module):
                 bb_summary = all_summary
             all_feat = y[:, self.num_summary_tokens:]
 
-        all_feat = all_feat.float()
-
         all_feat = self.feature_normalizer(all_feat)
 
         if feature_fmt == 'NCHW':
@@ -214,7 +212,8 @@ class RADIOModel(nn.Module):
         else:
             raise ValueError(f'Unsupported feature_fmt: {feature_fmt}. Must be one of ["NLC", "NCHW"]')
 
-        ret = RadioOutput(bb_summary.flatten(1), fmt_feat).to(torch.float32)
+        ret = RadioOutput(bb_summary.flatten(1), fmt_feat)
+
         if self.adaptors:
             ret = dict(backbone=ret)
             for name, adaptor in self.adaptors.items():
