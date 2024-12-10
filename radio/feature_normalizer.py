@@ -28,8 +28,6 @@ class FeatureNormalizer(nn.Module):
     def __init__(self, embed_dim: int, dtype: torch.dtype = torch.float32):
         super().__init__()
 
-#        self.mean = nn.Parameter(torch.zeros(embed_dim, dtype=dtype), requires_grad=False)
-#        self.tx = nn.Parameter(torch.eye(embed_dim, dtype=dtype), requires_grad=False)
         self.register_buffer('mean', torch.zeros(embed_dim, dtype=dtype))
         self.register_buffer('tx', torch.eye(embed_dim, dtype=dtype))
 
@@ -51,18 +49,14 @@ class IntermediateFeatureNormalizerBase(nn.Module):
 class IntermediateFeatureNormalizer(IntermediateFeatureNormalizerBase):
     def __init__(self, num_intermediates: int, embed_dim: int, rot_per_layer: bool = False, dtype: torch.dtype = torch.float32):
         super().__init__()
-#        self.alphas = nn.Parameter(torch.ones(num_intermediates, dtype=dtype), requires_grad=False)
         self.register_buffer('alphas', torch.ones(num_intermediates, dtype=dtype))
 
         rot = torch.eye(embed_dim, dtype=dtype)
         if rot_per_layer:
             rot = rot.unsqueeze(0).repeat(num_intermediates, 1, 1)
 
-#        self.rotation = nn.Parameter(rot.contiguous(), requires_grad=False)
-#        self.means = nn.Parameter(torch.zeros(num_intermediates, embed_dim, dtype=dtype), requires_grad=False)
         self.register_buffer('rotation', rot.contiguous())
         self.register_buffer('means', torch.zeros(num_intermediates, embed_dim, dtype=dtype))
-
 
     def forward(self, x: torch.Tensor, index: int, rot_index: int = None, skip: Optional[int] = None) -> InterFeatState:
         if rot_index is None:
