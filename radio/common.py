@@ -96,13 +96,6 @@ RESOURCE_MAP = {
         max_resolution=2048,
         preferred_resolution=Resolution(512, 512),
     ),
-    # RADIO-DINOv2
-    "radio_dinov2-g": RadioResource(
-        None,  # TODO: add URL for DINOv2 student.
-        patch_size=14,
-        max_resolution=2044,
-        preferred_resolution=Resolution(518, 518),
-    ),
 }
 
 DEFAULT_VERSION = "radio_v2.5-h"

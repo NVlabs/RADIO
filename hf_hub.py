@@ -21,7 +21,7 @@ from hubconf import get_prefix_state_dict
 from radio.adaptor_base import RadioOutput
 from radio.adaptor_registry import adaptor_registry
 from radio.adaptor_mlp import get_mlp_info_from_state
-from radio.hf_model import RADIOConfig, RADIOModel, rename_all_gamma_to_weight_with_proxy
+from radio.hf_model import RADIOConfig, RADIOModel
 from test_hf import deterministic_grid_init
 
 
@@ -231,10 +231,6 @@ def main():
         radio_model.radio_model.feature_normalizer.load_state_dict(feat_norm_sd)
     if inter_feat_norm_sd:
         radio_model.radio_model.inter_feature_normalizer.load_state_dict(inter_feat_norm_sd)
-
-    # Rename "gamma" parameters to "weight"
-    rename_all_gamma_to_weight_with_proxy(radio_model.radio_model)
-    radio_config.rename_gamma_to_weight = True
 
     radio_model.eval().cuda()
 
