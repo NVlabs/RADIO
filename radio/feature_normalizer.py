@@ -93,7 +93,7 @@ class IntermediateFeatureNormalizer(IntermediateFeatureNormalizerBase):
 
 
 class NullIntermediateFeatureNormalizer(IntermediateFeatureNormalizerBase):
-    instance = None
+    instances = dict()
 
     def __init__(self, dtype: torch.dtype, device: torch.device):
         super().__init__()
@@ -101,9 +101,11 @@ class NullIntermediateFeatureNormalizer(IntermediateFeatureNormalizerBase):
 
     @staticmethod
     def get_instance(dtype: torch.dtype, device: torch.device):
-        if NullIntermediateFeatureNormalizer.instance is None:
-            NullIntermediateFeatureNormalizer.instance = NullIntermediateFeatureNormalizer(dtype, device)
-        return NullIntermediateFeatureNormalizer.instance
+        instance = NullIntermediateFeatureNormalizer.instances.get((dtype, device), None)
+        if instance is None:
+            instance = NullIntermediateFeatureNormalizer(dtype, device)
+            NullIntermediateFeatureNormalizer.instances[(dtype, device)] = instance
+        return instance
 
     def forward(self, x: torch.Tensor, index: int, rot_index: int = None, skip: Optional[int] = None) -> InterFeatState:
         return InterFeatState(x, self.alpha)
