@@ -121,6 +121,10 @@ class SigLIPWrapper(CLIPWrapper):
         super().__init__(clip_model, tokenizer, adaptor_name, clip_mode)
         self.vision_encoder.trunk.patch_embed.img_size = (378, 378)
 
+    @property
+    def patch_size(self):
+        return 14
+
     def forward(self, *args, **kwargs):
         features = self.inner.visual.trunk.forward_features(*args, **kwargs)
         token = self.inner.visual.trunk.attn_pool(features)

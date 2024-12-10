@@ -57,11 +57,12 @@ fi
 
 export PYTHONPATH=.:examples
 
-# Calculate the sequence of resolutions based on the patch size
-RESOLUTIONS=()
-for res in $(seq $MIN_RES $STEP $MAX_RES); do
-    RESOLUTIONS+=($res)
-done
+# # Calculate the sequence of resolutions based on the patch size
+# RESOLUTIONS=()
+# for res in $(seq $MIN_RES $STEP $MAX_RES); do
+#     RESOLUTIONS+=($res)
+# done
+RESOLUTIONS=(256 336 432 512 768 1024)
 
 trun () {
     LOGLEVEL=WARNING NCCL_DEBUG=WARN torchrun --nproc_per_node=$SUBMIT_GPUS --master_addr=$MASTER_ADDR --master_port=$MASTER_PORT --nnodes=$NUM_NODES --node_rank=$NODE_RANK "$@"

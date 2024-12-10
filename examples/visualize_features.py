@@ -108,6 +108,7 @@ def main(rank: int = 0, world_size: int = 1):
                         type=str,
                         help='How to aggregate intermediate layers',
                         choices=['sparse', 'dense'])
+    parser.add_argument('--interpolation', default='bilinear', type=str, help='Interpolation mode')
 
     args, _ = parser.parse_known_args()
 
@@ -116,6 +117,14 @@ def main(rank: int = 0, world_size: int = 1):
     random.seed(42 + rank)
 
     rank_print(f'Loading model: "{args.model_version}", ViTDet: {args.vitdet_window_size}, Adaptor: "{args.adaptor_name}", Resolution: {args.resolution}, Max: {args.max_dim}...')
+    if os.path.isdir(args.model_version):
+        for chk_name in ['last_release_half.pth.tar', 'last_release.pth.tar', 'last.pth.tar']:
+            chk_path = os.path.join(args.model_version, chk_name)
+            if os.path.exists(chk_path):
+                args.model_version = chk_path
+                print(f'Using "{chk_path}" as model version.')
+                break
+
     model, preprocessor, info = load_model(args.model_version, vitdet_window_size=args.vitdet_window_size, adaptor_names=args.adaptor_name,
                                            torchhub_repo=args.torchhub_repo)
     model.to(device=device).eval()
@@ -192,14 +201,14 @@ def main(rank: int = 0, world_size: int = 1):
                         return_prefix_tokens=False,
                         norm=False,
                         stop_early=True,
-                        output_fmt='NLC',
+                        output_fmt='NCHW',
                         intermediates_only=True,
                         aggregation=args.intermediate_aggregation,
                     )
                     assert args.adaptor_name is None
                     all_feat = [o[1] for o in outputs]
                 else:
-                    output = model(p_images)
+                    output = model(p_images, feature_fmt='NCHW')
                     if args.adaptor_name:
                         all_feat = [
                             output['backbone'].features,
@@ -208,19 +217,7 @@ def main(rank: int = 0, world_size: int = 1):
                     else:
                         all_feat = [output[1]]
 
-            if images.shape[-2] != images.shape[-1]:
-                num_rows = images.shape[-2] // patch_size
-                num_cols = images.shape[-1] // patch_size
-            else:
-                num_rows = int(round(math.sqrt(all_feat[0].shape[1])))
-                num_cols = num_rows
-
-            # m b h w c
-            all_feat = [
-                rearrange(f, 'b (h w) c -> b h w c', h=num_rows, w=num_cols).float()
-                for f in all_feat
-            ]
-            # all_feat = rearrange(all_feat, 'b m (h w) c -> b m h w c', h=num_rows, w=num_cols).float()
+            all_feat = [rearrange(f, 'b c h w -> b h w c').float() for f in all_feat]
 
             # b m h w c
             all_feat = list(zip(*all_feat))
@@ -228,7 +225,7 @@ def main(rank: int = 0, world_size: int = 1):
             for i, feats in enumerate(all_feat):
                 colored = []
                 for features in feats:
-                    color = get_pca_map(features, images.shape[-2:], interpolation='bilinear')
+                    color = get_pca_map(features, images.shape[-2:], interpolation=args.interpolation)
                     colored.append(color)
 
                 orig = cv2.cvtColor(images[i].permute(1, 2, 0).cpu().numpy(), cv2.COLOR_RGB2BGR)

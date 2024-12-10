@@ -4,14 +4,14 @@ set -o xtrace
 ROOT="vis_denoise"
 N="128"
 
-DATASET="/lustre/fs6/portfolios/llmservice/users/mranzinger/data/radio/paper_images"
+DATASET="/lustre/fsw/portfolios/llmservice/users/mranzinger/data/radio/paper_images"
 # RADIOV2="/lustre/fs6/portfolios/llmservice/users/mranzinger/output/evfm/ohem/3-13-24_vit-h-16_bf16_ep50/checkpoints/radio_v2.1_bf16.pth.tar"
 # RADIOV2="/lustre/fs6/portfolios/llmservice/users/mranzinger/output/evfm/ohem/3-9-24_vit-h-16_bf16_ep10/checkpoints/radio_v2.1_bf16.pth.tar"
 RADIOV2="radio_v2.1"
 # COMM_RADIO="/lustre/fs6/portfolios/llmservice/users/mranzinger/output/evfm/commercial_iad/n16_4-14-24_vit-h-16_dfn-siglip_low-res_ep150/checkpoints/checkpoint-113.pth.tar"
-COMM_RADIO="/lustre/fs6/portfolios/llmservice/users/mranzinger/output/evfm/commercial/ord/dual-res/checkpoint-77.pth.tar"
+COMM_RADIO="/lustre/fsw/portfolios/llmservice/users/mranzinger/output/evfm/commercial/ord/dual-res/checkpoint-77.pth.tar"
 
-E_RADIO="/lustre/fs6/portfolios/llmservice/users/mranzinger/output/evfm/eradio/n8_3-25-24_eradio_stage3-alt_s2ep77/checkpoints/eradio_v2.pth.tar"
+E_RADIO="/lustre/fsw/portfolios/llmservice/users/mranzinger/output/evfm/eradio/n8_3-25-24_eradio_stage3-alt_s2ep77/checkpoints/eradio_v2.pth.tar"
 
 export PYTHONPATH=.:examples
 
@@ -146,11 +146,82 @@ export PYTHONPATH=.:examples
 # python examples/visualize_features.py --dataset $DATASET --model-version radio_v2.5-l -n $N --resolution 1024 1024 --adaptor-name sam --output-dir $ROOT/radiov2.5/vit-l/1024_sam
 # python examples/visualize_features.py --dataset $DATASET --model-version radio_v2.5-l -n $N --resolution 2048 2048 --adaptor-name sam --output-dir $ROOT/radiov2.5/vit-l/2048_sam
 
-python examples/visualize_features.py --dataset $DATASET --model-version radio_v2.5-h -n $N --resolution 256 --output-dir $ROOT/radiov2.5/vit-h/256min
-python examples/visualize_features.py --dataset $DATASET --model-version radio_v2.5-h -n $N --resolution 512 --output-dir $ROOT/radiov2.5/vit-h/512min
-python examples/visualize_features.py --dataset $DATASET --model-version radio_v2.5-h -n $N --resolution 768 --output-dir $ROOT/radiov2.5/vit-h/768min
-python examples/visualize_features.py --dataset $DATASET --model-version radio_v2.5-h -n $N --resolution 1024 --output-dir $ROOT/radiov2.5/vit-h/1024min
-python examples/visualize_features.py --dataset $DATASET --model-version radio_v2.5-h -n $N --resolution 2048 --output-dir $ROOT/radiov2.5/vit-h/2048min
+# python examples/visualize_features.py --dataset $DATASET --model-version radio_v2.5-h -n $N --resolution 256 --output-dir $ROOT/radiov2.5/vit-h/256min
+# python examples/visualize_features.py --dataset $DATASET --model-version radio_v2.5-h -n $N --resolution 512 --output-dir $ROOT/radiov2.5/vit-h/512min
+# python examples/visualize_features.py --dataset $DATASET --model-version radio_v2.5-h -n $N --resolution 768 --output-dir $ROOT/radiov2.5/vit-h/768min
+# python examples/visualize_features.py --dataset $DATASET --model-version radio_v2.5-h -n $N --resolution 1024 --output-dir $ROOT/radiov2.5/vit-h/1024min
+# python examples/visualize_features.py --dataset $DATASET --model-version radio_v2.5-h -n $N --resolution 2048 --output-dir $ROOT/radiov2.5/vit-h/2048min
+
+fspath="/lustre/fsw/portfolios/llmservice/users/mranzinger/output/evfm/icml25/featsharp"
+resolutions=(256 512 768 1024 2048)
+adaptors=("" "clip" "siglip")
+
+mod_exps=("vit-l-16_siglip_s3_baseline" "vit-l-16_siglip_s3_tile" "vit-l-16_siglip_s3_s2-lerp" "vit-l-16_siglip_s3_featup" "vit-l-16_siglip_s3_featsharp-v4_dv2-2" "vit-l-16_siglip_s3_featsharp-v5-fft")
+mod_names=("Baseline" "Tile" "S2" "FeatUp" "FeatSharp" "FeatSharp - FFT")
+
+declare -A modname_map
+for (( i=0; i<${#mod_exps}; i++ )); do
+    modname_map[${mod_exps[$i]}]=${mod_names[$i]}
+done
+# modname_map["vit-l-16_siglip_s3_baseline"]="Baseline"
+# modname_map["vit-l-16_siglip_s3_tile"]="Tile"
+# modname_map["vit-l-16_siglip_s3_s2-lerp"]="S2"
+# modname_map["vit-l-16_siglip_s3_featup"]="FeatUp"
+# modname_map["vit-l-16_siglip_s3_featsharp-v4_dv2-2"]="FeatSharp"
+# modname_map["vit-l-16_siglip_s3_featsharp-v5-fft"]="FeatSharp - FFT"
+
+declare -A adaptor_map
+adaptor_map[""]="Backbone"
+adaptor_map["clip"]=" - DFN CLIP"
+adaptor_map["siglip"]=" - SigLIP"
+
+for adaptor in "${adaptors[@]}";
+do
+    AD_FLAG=""
+    AD_SUFF=""
+    VIZ_PATH="backbone"
+    if [[ -n "$adaptor" ]]; then
+        AD_FLAG="--adaptor-name $adaptor"
+        AD_SUFF="_${adaptor}"
+        VIZ_PATH="$adaptor"
+    fi
+
+    JOINED=()
+    # for modname in "vit-l-16_siglip_s3_baseline" "vit-l-16_siglip_s3_featsharp";
+    # for modname in "vit-l-16_siglip_s3_baseline" "vit-l-16_siglip_s3_tile" "vit-l-16_siglip_s3_s2-lerp" "vit-l-16_siglip_s3_featup" "vit-l-16_siglip_s3_featsharp" "vit-l-16_siglip_s3_featsharp-v4_dv2-2";
+    # for modname in "vit-l-16_siglip_s3_baseline" "vit-l-16_siglip_s3_tile" "vit-l-16_siglip_s3_s2-lerp" "vit-l-16_siglip_s3_featup" "vit-l-16_siglip_s3_featsharp-v4_dv2-2" "vit-l-16_siglip_s3_featsharp-v5-fft";
+    for modname in ${mod_exps[@]}
+    do
+        chk="${fspath}/${modname}/checkpoints"
+
+        OUTDIRS=("$ROOT/icml25/featsharp/${modname}/512min${AD_SUFF}/orig")
+        for res in "${resolutions[@]}";
+        do
+            outdir="$ROOT/icml25/featsharp/${modname}/${res}min${AD_SUFF}"
+
+            OUTDIRS+=("${outdir}/viz/${VIZ_PATH}")
+            if [[ ! -d "$outdir" ]]; then
+                python examples/visualize_features.py --dataset $DATASET --model-version "$chk" -n $N --resolution $res $AD_FLAG --output-dir "$outdir" --interpolation nearest
+            fi
+        done
+
+        join_path="$ROOT/icml25/featsharp/${modname}/join${AD_SUFF}"
+        if [[ ! -d "$join_path" ]]; then
+            if [[ "$modname" = "vit-l-16_siglip_s3_baseline" ]]; then
+                extra_headers=";0,1,256px;0,2,512px;0,3,768px;0,4,1024px;0,5,2048px"
+            else
+                extra_headers=""
+            fi
+
+            python tools/im_join.py --input-dirs ${OUTDIRS[@]} --output-dir "$join_path" --cols 6 --header 64 --header-text "0,0,${modname_map[$modname]}${adaptor_map[$adaptor]}${extra_headers}"
+        fi
+        if [[ -d "$join_path" ]]; then
+            JOINED+=("$join_path")
+        fi
+    done
+
+    python tools/im_join.py --input-dirs ${JOINED[@]} --output-dir "$ROOT/icml25/featsharp/join${AD_SUFF}" --cols 1 --header 0
+done
 
 # python examples/visualize_features.py --dataset $DATASET --model-version radio_v2.5-h -n $N --resolution 256 256   --adaptor-name dino_v2 --output-dir $ROOT/radiov2.5/vit-h/256_dinov2
 # python examples/visualize_features.py --dataset $DATASET --model-version radio_v2.5-h -n $N --resolution 432 432   --adaptor-name dino_v2 --output-dir $ROOT/radiov2.5/vit-h/432_dinov2
