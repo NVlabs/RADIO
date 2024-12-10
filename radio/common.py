@@ -52,6 +52,13 @@ RESOURCE_MAP = {
         preferred_resolution=(768, 768),
         vitdet_num_global=4,
     ),
+    "radio_v2.5-g": RadioResource(
+        "https://huggingface.co/nvidia/RADIO/resolve/main/radio_v2.5-g.pth.tar?download=true",
+        patch_size=14,
+        max_resolution=1792,
+        preferred_resolution=(896, 896),
+        vitdet_num_global=8,
+    ),
     # RADIO
     "radio_v2.1": RadioResource(
         "https://huggingface.co/nvidia/RADIO/resolve/main/radio_v2.1_bf16.pth.tar?download=true",

@@ -11,6 +11,7 @@ from hashlib import sha256
 import math
 import os
 from PIL import Image
+import sys
 from tqdm import tqdm
 from typing import Any, Dict, Iterable, List, Tuple
 
@@ -279,7 +280,7 @@ if __name__ == '__main__':
     rank = 0
     world_size = 1
 
-    if 'WORLD_SIZE' in os.environ:
+    if 'WORLD_SIZE' in os.environ and '--help' not in sys.argv:
         dist.init_process_group(backend='nccl')
         rank = dist.get_rank()
         world_size = dist.get_world_size()
