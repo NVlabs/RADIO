@@ -55,7 +55,7 @@ def main():
     # Load a font (default PIL font if none available)
     try:
         # Use a TTF font available on your system
-        font = ImageFont.truetype("OpenSans-VariableFont_wdth,wght.ttf", max(8, args.header - 8))
+        font = ImageFont.truetype("OpenSans-VariableFont_wdth,wght.ttf", size=max(8, args.header - 8))
     except IOError:
         font = ImageFont.load_default()  # Default font if TTF font isn't available
 
@@ -95,26 +95,33 @@ def main():
 
         buff = np.full((num_rows * (max_height + args.header) + (2 * (num_rows - 1)), num_cols * max_width + (2 * (num_cols - 1)), 3), 255, dtype=imgs[0].dtype)
 
+        def render_into(draw_func):
+            for i, img in enumerate(imgs):
+                c = i % num_cols
+                r = i // num_cols
+
+                c_pix = c * (max_width + 2)
+                r_pix = r * (max_height + 2 + args.header)
+                draw_func(img, c, r, c_pix, r_pix)
+
+        def paint_images(img, c, r, c_pix, r_pix):
+            buff[r_pix:r_pix+args.header, c_pix:c_pix+max_width] = args.header_color
+            r_pix += args.header
+            buff[r_pix:r_pix+max_height, c_pix:c_pix+max_width] = img
+
+        def paint_headers(pil_buff):
+            draw = ImageDraw.Draw(pil_buff)
+            def _stage(img, c, r, c_pix, r_pix):
+                header_text = header_lookup.get((r, c), None)
+                if header_text:
+                    # bbox = draw.textbbox((4, 4), header_text, font)
+                    draw.text((4 + c_pix, 4 + r_pix), header_text, font=font, anchor='lt', fill=(0, 0, 0))
+            return _stage
+
+        render_into(paint_images)
         pil_buff = Image.fromarray(buff, mode='RGB')
-        draw = ImageDraw.Draw(pil_buff)
-
-        for i, img in enumerate(imgs):
-            c = i % num_cols
-            r = i // num_cols
-
-            c = c * (max_width + 2)
-            r = r * (max_height + 2 + args.header)
-
-            buff[r:r+args.header, c:c+max_width] = args.header_color
-
-            header_text = header_lookup.get((r, c), None)
-            if header_text:
-                # bbox = draw.textbbox((4, 4), header_text, font)
-                draw.text((4, 4), header_text, font=font)
-
-            r += args.header
-
-            buff[r:r+max_height, c:c+max_width] = img
+        render_into(paint_headers(pil_buff))
+        buff = np.array(pil_buff)
 
         cv2.imwrite(os.path.join(args.output_dir, fname), buff)
 

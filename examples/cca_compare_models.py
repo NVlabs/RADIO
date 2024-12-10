@@ -49,8 +49,12 @@ except ImportError:
 LAYER_STATS = dict()
 
 
-def get_cache_filename(cache_dir: str, model_name: str, which: str):
-    hashname = hashlib.md5(model_name.encode()).hexdigest()
+def get_cache_filename(cache_dir: str, model_name: str, which: str, adaptor: str):
+    mname = model_name
+    if adaptor:
+        mname = mname + f'_{adaptor}'
+
+    hashname = hashlib.md5(mname.encode()).hexdigest()
     cache_file = os.path.join(cache_dir, f'{which}_{hashname}.pth')
     return cache_file
 
@@ -59,6 +63,7 @@ def get_cache_filename(cache_dir: str, model_name: str, which: str):
 def compute_feature_matrix(
     model: nn.Module,
     preproc: nn.Module,
+    adaptor: str,
     num_samples: int,
     resolution: int,
     which: str = 'features',
@@ -108,13 +113,15 @@ def compute_feature_matrix(
 
         with torch.autocast('cuda', dtype=torch.bfloat16):
             outputs = model(images)
+            if adaptor:
+                outputs = outputs[adaptor]
             my_output: torch.Tensor = outputs[which_idx]
 
             if my_output.ndim == 3:
                 d = int(round(math.sqrt(my_output.shape[1])))
                 my_output = rearrange(my_output, 'b (h w) c -> b c h w', h=d, w=d)
 
-            all_outputs.append(my_output)
+            all_outputs.append(my_output.half())
 
     all_outputs = torch.cat(all_outputs, dim=0)
 
@@ -127,20 +134,43 @@ def compute_feature_matrix(
 
 
 def get_feature_matrix(
-    cache_dir: str, model_name: str, which: str,
+    cache_dir: str, model_name: str, which: str, adaptor: str,
     *args, **kwargs
-):
-    cache_filename = get_cache_filename(cache_dir, model_name, which)
+) -> torch.Tensor:
+    cache_filename = get_cache_filename(cache_dir, model_name, which, adaptor)
 
     if os.path.exists(cache_filename):
         features = torch.load(cache_filename, map_location='cpu', weights_only=True)
     else:
-        model, preproc, _ = load_model(model_name)
-        features = compute_feature_matrix(model, preproc, *args, **kwargs)
+        model, preproc, _ = load_model(model_name, adaptor_names=adaptor)
+        features = compute_feature_matrix(model, preproc, adaptor, *args, **kwargs)
         os.makedirs(cache_dir, exist_ok=True)
         torch.save(features, cache_filename)
+        del model
+        gc.collect()
 
     return features
+
+
+def get_a_to_b_fidelity(a_features: torch.Tensor, b_features: torch.Tensor, proj_a: torch.Tensor, proj_b: torch.Tensor) -> float:
+    inv_proj_b = torch.linalg.pinv(proj_b)
+    a_to_b_proj = proj_a @ inv_proj_b
+
+    a_features = a_features @ a_to_b_proj
+    fidelity = (1 / F.mse_loss(a_features, b_features, reduction='none').mean(dim=0)).mean(dim=0).item()
+    return fidelity
+
+
+def compute_smooth_rank(features: torch.Tensor) -> float:
+    MAX_SAMPLES = 1000000
+    if features.shape[0] > MAX_SAMPLES:
+        subset = torch.ones(features.shape[0], dtype=torch.float32, device=features.device)
+        subset = torch.multinomial(subset, MAX_SAMPLES, replacement=False)
+        subset = torch.sort(subset).values
+        features = features[subset]
+
+    eig = torch.linalg.svdvals(features)
+    return smooth_rank(eig).item()
 
 
 @torch.inference_mode()
@@ -154,6 +184,8 @@ def main(rank: int = 0, world_size: int = 1):
     parser.add_argument('-b', '--model-b', default='radio_v2.5-b')
     parser.add_argument('--a-res', type=int, default=432)
     parser.add_argument('--b-res', type=int, default=432)
+    parser.add_argument('--a-adaptor', type=str, default=None)
+    parser.add_argument('--b-adaptor', type=str, default=None)
     parser.add_argument('-d', '--dataset', default='imagenet-1k', help='The name of the dataset to classify')
     parser.add_argument('--split', default='validation', help='The dataset split to use.')
     parser.add_argument('-n', default=1000, type=int, help='The number of samples to load')
@@ -171,13 +203,15 @@ def main(rank: int = 0, world_size: int = 1):
         num_samples=args.n, which=args.which, cache_dir=args.cache_dir, dataset=args.dataset,
         split=args.split, rank=rank, world_size=world_size, batch_size=args.batch_size,
     )
-    a_features = get_feature_matrix(model_name=args.model_a, resolution=args.a_res, **common_kwargs)
-    b_features = get_feature_matrix(model_name=args.model_b, resolution=args.b_res, **common_kwargs)
+    a_features = get_feature_matrix(model_name=args.model_a, resolution=args.a_res, adaptor=args.a_adaptor, **common_kwargs)
+    b_features = get_feature_matrix(model_name=args.model_b, resolution=args.b_res, adaptor=args.b_adaptor, **common_kwargs)
 
     if a_features.ndim == 4:
         min_shape = tuple(min(d1, d2) for d1, d2 in zip(a_features.shape[-2:], b_features.shape[-2:]))
-        a_features = F.interpolate(a_features, size=min_shape, mode='bilinear', align_corners=False)
-        b_features = F.interpolate(b_features, size=min_shape, mode='bilinear', align_corners=False)
+        if a_features.shape[-2:] != min_shape:
+            a_features = F.interpolate(a_features, size=min_shape, mode='bilinear', align_corners=False)
+        if b_features.shape[-2:] != min_shape:
+            b_features = F.interpolate(b_features, size=min_shape, mode='bilinear', align_corners=False)
         a_features = rearrange(a_features, 'b c h w -> (b h w) c')
         b_features = rearrange(b_features, 'b c h w -> (b h w) c')
 
@@ -186,15 +220,8 @@ def main(rank: int = 0, world_size: int = 1):
     if rank > 0:
         return
 
-    a_features = a_features.cuda().double()
-    b_features = b_features.cuda().double()
-
-    # n_samples = 20000
-    # if a_features.shape[0] > n_samples:
-    #     weights = torch.full((a_features.shape[0],), 1.0, device=a_features.device)
-    #     sel_idxs = torch.multinomial(weights, num_samples=n_samples, replacement=False)
-    #     a_features = a_features[sel_idxs]
-    #     b_features = b_features[sel_idxs]
+    a_features = a_features.cuda().float()
+    b_features = b_features.cuda().float()
 
     a_mean, a_phi_s = get_phi_s_matrix(a_features)
     b_mean, b_phi_s = get_phi_s_matrix(b_features)
@@ -202,15 +229,25 @@ def main(rank: int = 0, world_size: int = 1):
     a_features = (a_features - a_mean) @ a_phi_s.T
     b_features = (b_features - b_mean) @ b_phi_s.T
 
+    a_smooth_rank = compute_smooth_rank(a_features)
+    b_smooth_rank = compute_smooth_rank(b_features)
+
+    print(f'A Smooth Rank: {a_smooth_rank:.4f} / {a_features.shape[1]}')
+    print(f'B Smooth Rank: {b_smooth_rank:.4f} / {b_features.shape[1]}')
+
     cov_ab = a_features.T @ b_features / a_features.shape[0]
-    cov_aa = a_features.T @ a_features / a_features.shape[0] + 1e-6 * torch.eye(a_features.shape[1], device=a_features.device)
-    cov_bb = b_features.T @ b_features / a_features.shape[0] + 1e-6 * torch.eye(b_features.shape[1], device=a_features.device)
+    cov_aa = torch.cov(a_features.T) # a_features.T @ a_features / a_features.shape[0] + 1e-6 * torch.eye(a_features.shape[1], device=a_features.device)
+    cov_bb = torch.cov(b_features.T) # b_features.T @ b_features / a_features.shape[0] + 1e-6 * torch.eye(b_features.shape[1], device=a_features.device)
 
     aE, aL = torch.linalg.eigh(cov_aa)
     bE, bL = torch.linalg.eigh(cov_bb)
 
-    inv_sqrt_cov_aa = aL @ torch.diag(1.0 / torch.sqrt(aE)) @ aL.T
-    inv_sqrt_cov_bb = bL @ torch.diag(1.0 / torch.sqrt(bE)) @ bL.T
+    def invsqrt(v: torch.Tensor) -> torch.Tensor:
+        v = torch.where(v > 0, torch.rsqrt(v), 0)
+        return v.diag()
+
+    inv_sqrt_cov_aa = aL @ invsqrt(aE) @ aL.T
+    inv_sqrt_cov_bb = bL @ invsqrt(bE) @ bL.T
 
     T = inv_sqrt_cov_aa @ cov_ab @ inv_sqrt_cov_bb
 
@@ -219,29 +256,13 @@ def main(rank: int = 0, world_size: int = 1):
     linear_correlation = S.sum().item()
     print(f'CCA Rank: {linear_correlation:.4f}')
 
-    a_eig = torch.linalg.svdvals(a_features)
-    a_smooth_rank = smooth_rank(a_eig)
-    print(f'A Smooth Rank: {a_smooth_rank.item():.4f}')
-
-    b_eig = torch.linalg.svdvals(b_features)
-    b_smooth_rank = smooth_rank(b_eig)
-    print(f'B Smooth Rank: {b_smooth_rank.item():.4f}')
-
     proj_a = inv_sqrt_cov_aa @ U
     proj_b = inv_sqrt_cov_bb @ V
 
-    proj_a_features = a_features @ proj_a
-    proj_b_features = b_features @ proj_b
+    a_to_b_fidelity = get_a_to_b_fidelity(a_features, b_features, proj_a, proj_b)
+    b_to_a_fidelity = get_a_to_b_fidelity(b_features, a_features, proj_b, proj_a)
 
-    inv_proj_a = torch.linalg.pinv(proj_a)
-    inv_proj_b = torch.linalg.pinv(proj_b)
-
-    a_to_b = proj_a_features @ inv_proj_b
-    a_to_b_fidelity = (1 / F.mse_loss(a_to_b, b_features, reduction='none').mean(dim=0)).mean().item()
     print(f'A to B Fidelity: {a_to_b_fidelity:.4f}')
-
-    b_to_a = proj_b_features @ inv_proj_a
-    b_to_a_fidelity = (1 / F.mse_loss(b_to_a, a_features, reduction='none').mean(dim=0)).mean().item()
     print(f'B to A Fidelity: {b_to_a_fidelity:.4f}')
 
     pass
