@@ -9,6 +9,8 @@ from torch import Type, nn
 from torch.nn import functional as F
 from torch.nn.init import xavier_normal_, xavier_uniform_, zeros_
 
+from .forward_intermediates import forward_intermediates
+
 
 def _get_init_scale(num_encoder_layers: int, num_decoder_layers: int, is_encoder: bool):
     if num_encoder_layers > 0 and num_decoder_layers == 0:
@@ -268,14 +270,12 @@ class VisionTransformer(nn.Module):
     def num_prefix_tokens(self):
         return self.num_cls_tokens + self.num_reg_tokens
 
+    @property
+    def num_summary_tokens(self):
+        return self.num_prefix_tokens
+
     def forward_features(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
-        x = self.patch_embed(x)
-        patch_shape = x.shape[-2:]
-        x = rearrange(x, 'b c h w -> b (h w) c')
-
-        prefix = self.prefix_buffer.expand(x.shape[0], -1, -1)
-
-        x = torch.cat([prefix, x], dim=1)
+        x, patch_shape = self._patchify(x)
 
         for block in self.blocks:
             x = block(x, self.num_prefix_tokens, patch_shape)
@@ -284,6 +284,34 @@ class VisionTransformer(nn.Module):
         features = x[:, self.num_prefix_tokens:]
 
         return summary, features
+
+    def forward_intermediates(self, x: torch.Tensor, norm: bool = False, **kwargs):
+        patch_shape = tuple(d // self.patch_size for d in x.shape[-2:])
+
+        def patch_extractor(x: torch.Tensor):
+            x, _ = self._patchify(x)
+            return x
+
+        return forward_intermediates(
+            self,
+            patch_extractor=patch_extractor,
+            num_summary_tokens=self.num_prefix_tokens,
+            num_cls_tokens=self.num_cls_tokens,
+            norm=lambda y: y,
+            x=x,
+            block_kwargs=dict(num_prefix_tokens=self.num_prefix_tokens, patch_shape=patch_shape),
+            **kwargs,
+        )
+
+    def _patchify(self, x: torch.Tensor):
+        x = self.patch_embed(x)
+        patch_shape = x.shape[-2:]
+        x = rearrange(x, 'b c h w -> b (h w) c')
+
+        prefix = self.prefix_buffer.expand(x.shape[0], -1, -1)
+
+        x = torch.cat([prefix, x], dim=1)
+        return x, patch_shape
 
 
 @register_model

@@ -6,7 +6,7 @@
 # distribution of this software and related documentation without an express
 # license agreement from NVIDIA CORPORATION is strictly prohibited.
 
-from typing import Callable, List, Optional, Set, Tuple, Union, Any, Iterable
+from typing import Callable, Dict, List, Optional, Set, Tuple, Union, Any, Iterable
 from types import MethodType
 
 import torch
@@ -42,6 +42,7 @@ def forward_intermediates(
         aggregation: Optional[str] = "sparse",
         inter_feature_normalizer: Optional[IntermediateFeatureNormalizerBase] = None,
         norm_alpha_scheme = "post-alpha",
+        block_kwargs: Dict = None,
 ) -> Union[List[torch.Tensor], Tuple[torch.Tensor, List[torch.Tensor]]]:
     """ Forward features that returns intermediates.
 
@@ -64,6 +65,8 @@ def forward_intermediates(
     assert aggregation in ('sparse', 'dense'), 'Aggregation must be one of sparse or dense.'
     reshape = output_fmt == 'NCHW'
     intermediates = []
+
+    block_kwargs = block_kwargs or dict()
 
     blocks = model.blocks
 
@@ -90,7 +93,7 @@ def forward_intermediates(
     take_off = 0
 
     for i, blk in enumerate(blocks):
-        x = blk(x)
+        x = blk(x, **block_kwargs)
         if aggregation == "dense":
             # Arbitrarily use the rotation matrix from the final layer in the dense group
             y, alpha = inter_feature_normalizer(x, i, rot_index=take_indices[take_off], skip=num_summary_tokens)
