@@ -49,7 +49,7 @@ class XPosEmbedding2D(torch.nn.Module):
     def __init__(
         self,
         head_dim: int,
-        base=10000,
+        base=50000,
         scale_base=512
     ):
         super().__init__()
@@ -62,6 +62,7 @@ class XPosEmbedding2D(torch.nn.Module):
         self.batch_size_cached = None
         self.cos_cached: torch.Tensor | None = None
         self.sin_cached: torch.Tensor | None = None
+        self.scale_cached: torch.Tensor | None = None
         self.scale_base = scale_base
         self.register_buffer("scale",
                              (torch.arange(0, half_dim, 2) + 0.4 * half_dim) / (1.4 * half_dim))
@@ -81,26 +82,35 @@ class XPosEmbedding2D(torch.nn.Module):
             y_freqs = torch.einsum("i,j->ij", y.flatten(), self.inv_freq)
             x_freqs = torch.einsum("i,j->ij", x.flatten(), self.inv_freq)
 
+            y_scales = self.scale ** y.flatten().div(self.scale_base)[:, None]
+            x_scales = self.scale ** x.flatten().div(self.scale_base)[:, None]
+
             freqs = torch.cat([y_freqs, x_freqs], dim=-1)
             emb = torch.repeat_interleave(freqs, repeats=2, dim=-1)
+
+            scales = torch.cat([y_scales, x_scales], dim=-1)
+            scales = torch.repeat_interleave(scales, repeats=2, dim=-1)
 
             if dtype in [torch.float16, torch.bfloat16]:
                 emb = emb.float()
 
             self.cos_cached = emb.cos()[None, :, :]
             self.sin_cached = emb.sin()[None, :, :]
+            self.scale_cached = scales[None, :, :]
 
             self.cos_cached = self.cos_cached.type(dtype)
             self.sin_cached = self.sin_cached.type(dtype)
+            self.scale_cached = self.scale_cached.type(dtype)
 
-        return self.cos_cached, self.sin_cached
+        return self.cos_cached, self.sin_cached, self.scale_cached
 
     def forward(self, q: torch.Tensor, k: torch.Tensor, token_shape: Tuple[int, int]):
         batch, seq_len, head_dim = q.shape
-        cos, sin = self.cos_sin(token_shape, q.device, q.dtype)
-        scale = self.scale**torch.arange(seq_len).to(self.scale).div(self.scale_base)[:, None]
-        scale = torch.repeat_interleave(scale, 2, dim=-1).to(q.device)
-        scale = torch.cat([scale, scale], dim=-1)
+        cos, sin, scale = self.cos_sin(token_shape, q.device, q.dtype)
+        # scale = self.scale**torch.arange(seq_len).to(self.scale).div(self.scale_base)[:, None]
+        # scale = torch.repeat_interleave(scale, 2, dim=-1).to(q.device)
+        # scale = torch.cat([scale, scale], dim=-1)
+        # scale = 1
         return (
             (q * cos * scale) + (rotate_every_two(q) * sin * scale),
             (k * cos * (1 / scale)) + (rotate_every_two(k) * sin * (1 / scale)),
@@ -108,7 +118,7 @@ class XPosEmbedding2D(torch.nn.Module):
 
 
 class MagnetoAttention(nn.Module):
-    def __init__(self, d_model: int, n_head: int):
+    def __init__(self, d_model: int, n_head: int, pos_emb: XPosEmbedding2D):
         super().__init__()
         self.num_heads = n_head
         self.head_dim = d_model // n_head
@@ -116,7 +126,7 @@ class MagnetoAttention(nn.Module):
 
         self.qkv = nn.Linear(d_model, d_model * 3, bias=False)
         self.proj = nn.Linear(d_model, d_model)
-        self.pos_emb = XPosEmbedding2D(d_model)
+        self.pos_emb = pos_emb
 
         self.norm0 = nn.LayerNorm(d_model)
         self.norm1 = nn.LayerNorm(d_model)
@@ -161,7 +171,7 @@ class MagnetoAttention(nn.Module):
 
 
 class MagnetoTransformerEncoderLayer(nn.Module):
-    def __init__(self, d_model: int, nhead: int,
+    def __init__(self, d_model: int, nhead: int, pos_emb: XPosEmbedding2D,
                  num_encoder_layers: int, num_decoder_layers: int = 0,
                  dim_mhsa: int = 0,
                  dim_feedforward: int = 2048,
@@ -175,7 +185,7 @@ class MagnetoTransformerEncoderLayer(nn.Module):
         self._num_encoder_layers = num_encoder_layers
         self._num_decoder_layers = num_decoder_layers
 
-        self.attn = MagnetoAttention(d_model, nhead)
+        self.attn = MagnetoAttention(d_model, nhead, pos_emb)
 
         self.norm2 = nn.LayerNorm(d_model, eps=layer_norm_eps)
         self.linear2 = nn.Linear(d_model, dim_feedforward)
@@ -252,6 +262,8 @@ class VisionTransformer(nn.Module):
 
         self.prefix_buffer = nn.Parameter(torch.randn(1, self.num_prefix_tokens, embed_dim) * .02)
 
+        pos_emb = XPosEmbedding2D(embed_dim)
+
         self.blocks = nn.ModuleList([
             MagnetoTransformerEncoderLayer(
                 d_model=embed_dim,
@@ -259,6 +271,7 @@ class VisionTransformer(nn.Module):
                 num_encoder_layers=depth,
                 num_decoder_layers=0,
                 dim_feedforward=int(embed_dim * mlp_ratio),
+                pos_emb=pos_emb,
             )
             for _ in range(depth)
         ])
