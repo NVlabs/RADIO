@@ -16,7 +16,7 @@ def get_phi_s_matrix(X: torch.Tensor):
     mask = e >= 0
     e = torch.where(mask, e, torch.zeros_like(e))
 
-    H = get_hadamard_matrix(e.shape[0]).to(U.dtype)
+    H = get_hadamard_matrix(e.shape[0]).to(U)
 
     normalizer = e.mean().sqrt()
     inv_normalizer = 1. / normalizer

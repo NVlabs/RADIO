@@ -38,6 +38,8 @@ from datasets.distributed import split_dataset_by_node
 from common import rank_print, load_model, get_standard_transform, collate, ResizeTransform, PadToSize
 from common.phi_s import get_phi_s_matrix
 
+from ssl_metrics import smooth_rank
+
 try:
     import wandb
 except ImportError:
@@ -65,6 +67,7 @@ def compute_feature_matrix(
     rank: int = 0,
     world_size: int = 1,
     batch_size: int = 32,
+    num_workers: int = 4,
 ) -> torch.Tensor:
     transform = transforms.Compose([
         ResizeTransform(to_2tuple(resolution)),
@@ -76,7 +79,7 @@ def compute_feature_matrix(
     ds_builder = load_dataset_builder(dataset, trust_remote_code=True)
     ds_builder.download_and_prepare()
     dataset = ds_builder.as_dataset(split=split)
-    dataset = dataset.to_iterable_dataset(num_shards=world_size)
+    dataset = dataset.to_iterable_dataset(num_shards=world_size * num_workers)
     dataset = split_dataset_by_node(dataset, rank=rank, world_size=world_size)
     dataset = dataset.map(lambda ex: dict(image=transform(ex['image']), label=torch.as_tensor(ex['label'], dtype=torch.int64)))
     rank_print(f'Description: {ds_builder.info.description}')
@@ -181,12 +184,15 @@ def main(rank: int = 0, world_size: int = 1):
     if rank > 0:
         return
 
-    n_samples = 10000
-    if a_features.shape[0] > n_samples:
-        weights = torch.full((a_features.shape[0],), 1.0, device=a_features.device)
-        sel_idxs = torch.multinomial(weights, num_samples=n_samples, replacement=False)
-        a_features = a_features[sel_idxs]
-        b_features = b_features[sel_idxs]
+    a_features = a_features.cuda()
+    b_features = b_features.cuda()
+
+    # n_samples = 20000
+    # if a_features.shape[0] > n_samples:
+    #     weights = torch.full((a_features.shape[0],), 1.0, device=a_features.device)
+    #     sel_idxs = torch.multinomial(weights, num_samples=n_samples, replacement=False)
+    #     a_features = a_features[sel_idxs]
+    #     b_features = b_features[sel_idxs]
 
     a_mean, a_phi_s = get_phi_s_matrix(a_features)
     b_mean, b_phi_s = get_phi_s_matrix(b_features)
@@ -194,28 +200,30 @@ def main(rank: int = 0, world_size: int = 1):
     a_features = (a_features - a_mean) @ a_phi_s.T
     b_features = (b_features - b_mean) @ b_phi_s.T
 
-    a_features = a_features.cpu().numpy()
-    b_features = b_features.cpu().numpy()
+    cov_ab = a_features.T @ b_features / a_features.shape[0]
+    cov_aa = a_features.T @ a_features / a_features.shape[0] + 1e-6 * torch.eye(a_features.shape[1], device=a_features.device)
+    cov_bb = b_features.T @ b_features / a_features.shape[0] + 1e-6 * torch.eye(b_features.shape[1], device=a_features.device)
 
-    n_components = min(a_features.shape[1], b_features.shape[1])
-    cca = CCA(scale=False, n_components=n_components)
-    cca.fit(a_features, b_features)
+    aE, aL = torch.linalg.eigh(cov_aa)
+    bE, bL = torch.linalg.eigh(cov_bb)
 
-    a_cca, b_cca = cca.transform(a_features, b_features)
+    inv_sqrt_cov_aa = aL @ torch.diag(1.0 / torch.sqrt(aE)) @ aL.T
+    inv_sqrt_cov_bb = bL @ torch.diag(1.0 / torch.sqrt(bE)) @ bL.T
 
-    comp_corr = np.corrcoef(a_cca.T, b_cca.T)
-    comp_corr = np.diag(comp_corr)
+    T = inv_sqrt_cov_aa @ cov_ab @ inv_sqrt_cov_bb
 
-    print('Correlates:', comp_corr)
+    U, S, V = torch.svd(T)
 
-    score = cca.score(a_features, b_features)
-    print('Score:', score)
+    linear_correlation = S.sum().item()
+    print(f'CCA Rank: {linear_correlation:.4f}')
 
-    b_pred = cca.predict(a_features)
-    pred_sq_err = ((b_pred - b_features) ** 2).mean()
+    a_eig = torch.linalg.svdvals(a_features)
+    a_smooth_rank = smooth_rank(a_eig)
+    print(f'A Smooth Rank: {a_smooth_rank.item():.4f}')
 
-    print('Pred MSE:', pred_sq_err)
-
+    b_eig = torch.linalg.svdvals(b_features)
+    b_smooth_rank = smooth_rank(b_eig)
+    print(f'B Smooth Rank: {b_smooth_rank.item():.4f}')
     pass
 
 
