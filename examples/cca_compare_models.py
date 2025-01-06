@@ -184,8 +184,8 @@ def main(rank: int = 0, world_size: int = 1):
     if rank > 0:
         return
 
-    a_features = a_features.cuda()
-    b_features = b_features.cuda()
+    a_features = a_features.cuda().double()
+    b_features = b_features.cuda().double()
 
     # n_samples = 20000
     # if a_features.shape[0] > n_samples:
@@ -224,6 +224,24 @@ def main(rank: int = 0, world_size: int = 1):
     b_eig = torch.linalg.svdvals(b_features)
     b_smooth_rank = smooth_rank(b_eig)
     print(f'B Smooth Rank: {b_smooth_rank.item():.4f}')
+
+    proj_a = inv_sqrt_cov_aa @ U
+    proj_b = inv_sqrt_cov_bb @ V
+
+    proj_a_features = a_features @ proj_a
+    proj_b_features = b_features @ proj_b
+
+    inv_proj_a = torch.linalg.pinv(proj_a)
+    inv_proj_b = torch.linalg.pinv(proj_b)
+
+    a_to_b = proj_a_features @ inv_proj_b
+    a_to_b_fidelity = (1 / F.mse_loss(a_to_b, b_features, reduction='none').mean(dim=0)).mean().item()
+    print(f'A to B Fidelity: {a_to_b_fidelity:.4f}')
+
+    b_to_a = proj_b_features @ inv_proj_a
+    b_to_a_fidelity = (1 / F.mse_loss(b_to_a, a_features, reduction='none').mean(dim=0)).mean().item()
+    print(f'B to A Fidelity: {b_to_a_fidelity:.4f}')
+
     pass
 
 
