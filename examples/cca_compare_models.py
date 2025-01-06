@@ -97,6 +97,8 @@ def compute_feature_matrix(
 
     all_outputs = []
 
+    which_idx = dict(summary=0, features=1)[which]
+
     for i, batch in tqdm(enumerate(loader), total=num_batches, disable=rank > 0):
         if i == num_batches:
             break
@@ -106,7 +108,7 @@ def compute_feature_matrix(
 
         with torch.autocast('cuda', dtype=torch.bfloat16):
             outputs = model(images)
-            my_output: torch.Tensor = getattr(outputs, which)
+            my_output: torch.Tensor = outputs[which_idx]
 
             if my_output.ndim == 3:
                 d = int(round(math.sqrt(my_output.shape[1])))
