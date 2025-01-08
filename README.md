@@ -1,6 +1,6 @@
 [![Star on GitHub](https://img.shields.io/github/stars/NVlabs/RADIO.svg?style=social)](https://github.com/NVlabs/RADIO/stargazers)
 [![License](https://img.shields.io/badge/license-NC-blue.svg)](LICENSE)
-[![Paper](https://img.shields.io/badge/RADIO_AMP-arXiv.2412.07679-blue.svg)](https://arxiv.org/abs/2412.07679)
+[![Paper](https://img.shields.io/badge/RADIO_AMP-arXiv.2412.07679-green.svg)](https://arxiv.org/abs/2412.07679)
 [![Paper](https://img.shields.io/badge/PHI_Standardization-arXiv.2410.01680-orange.svg)](https://arxiv.org/abs/2410.01680)
 [![Paper](https://img.shields.io/badge/AM_RADIO-arXiv.2312.06709-blue.svg)](https://arxiv.org/abs/2312.06709)
 [![Paper](https://img.shields.io/badge/AM_RADIO-CVPR.2024-blue.svg)](https://openaccess.thecvf.com/content/CVPR2024/papers/Ranzinger_AM-RADIO_Agglomerative_Vision_Foundation_Model_Reduce_All_Domains_Into_One_CVPR_2024_paper.pdf)
@@ -31,8 +31,8 @@ For business inquiries, please visit our website and submit the form: [NVIDIA Re
 
 ## News/Release
 
-- [12.18.2024] We release C-RADIO, a commercial-friendly ViT-H/16 variant of RADIO under the [NVIDIA Open Model License Agreement](https://developer.download.nvidia.com/licenses/nvidia-open-model-license-agreement-june-2024.pdf) license!
-- [12.11.2024] We release RADIOv2.5 ViT-G/14, our biggest model yet!
+- [12.18.2024] We release C-RADIO, a ViT-H/16 model which can be used for commercial products, under the [NVIDIA Open Model License Agreement](https://developer.download.nvidia.com/licenses/nvidia-open-model-license-agreement-june-2024.pdf) license!
+- [12.11.2024] We release RADIOv2.5 ViT-g/14, our biggest model yet!
 - [12.10.2024] We release \[[RADIO-Amplified](https://arxiv.org/abs/2412.07679)\] to ArXiv with details on our method to address the mode-switching issue (previously described in this [tech report](./RADIOv2.5_tech_report.md)) and our efficient VLM integration method.
 - [10.2.2024] 🔥🔥 RADIOv2.5 ViT-H/16 model is released. We have also released \[[PHI-S: Distribution Balancing for Label-Free Multi-Teacher Distillation](https://arxiv.org/abs/2410.01680)\] to ArXiv that details one of the major algorithm updates behind the version 2.5 releases.
 - [7.22.2024] 🔥 RADIOv2.5 ViT-B/16 and ViT-L/16 are released. For VLLM tasks, RADIOv2.5-B is as good or better than RADIOv2, and RADIOv2.5-L is much better! See [tech report](./RADIOv2.5_tech_report.md).
@@ -146,8 +146,8 @@ Please see more details on usage in the [Quick Start](#quick-start---torchhub) s
 
 | Name         | Architecture | Precision | Teachers                                 | Throughput | Zero Shot Top-1 | kNN Top-1 | ADE20k    | VOC       | GQA       | TextVQA   | VQAv2     | SAM-COCO  |
 |--------------|--------------|-----------|------------------------------------------|------------|-----------------|-----------|-----------|-----------|-----------|-----------|-----------|-----------|
-| radio-g | DINOv2 ViT-g/14 | Float32   | DFN CLIP; SigLIP, DINOv2; SAM; | | | | **54.56** | **87.37** | | | | |
-| c-radio-h | ViT-H/16-CPE | Float32   | DFN CLIP; SigLIP, DINOv2; SAM; | 556        | 82.28           | 85.27     | 52.55 | 85.88 | 64.01 | 62.12 | 80.74 |     |
+| radio-g | DINOv2 ViT-g/14 | Float32   | DFN CLIP; SigLIP, DINOv2; SAM; |           | 83.33   | 85.34 | **54.56** | **87.37** |  | | | 76.17 |
+| c-radio-h | ViT-H/16-CPE | Float32   | DFN CLIP; SigLIP, DINOv2; SAM; | 556        | 82.24           | 85.27     | 52.55 | 85.88 | 64.01 | 62.12 | 80.74 |  74.82   |
 | radio_v2.5-h | ViT-H/16-CPE | Float32   | DFN CLIP; SigLIP, DINOv2; SAM; Florence2 | 556        | 82.51           | 85.81     | 51.58 | **85.97** | **65.03** | **62.39** | **81.56** | 76.14     |
 | radio_v2.5-l | ViT-L/16-CPE | Float32   | DFN CLIP; SigLIP; DINOv2; SAM            |            | 81.01           | 84.68     | 51.47     | 85.49     | 64.13     | 61.93     | 81.02     | 75.06     |
 | radio_v2.5-b | ViT-B/16-CPE | Float32   | DFN CLIP; SigLIP; DINOv2; SAM            |            | 74.57           | 81.89     | 48.94     | 84.35     | 63.31     | 56.93     | 79.22     | 73.87     |
@@ -180,7 +180,8 @@ For summarization results we use the summarization token of the model. For Zero-
 | RADIOv2.5-B            |            | 768        |            | 74.57               |                 |
 | RADIOv2.5-L            |            | 1024       |            | 81.01               |                 |
 | RADIOv2.5-H            |            | 1024       |            | 82.51               | 85.81           |
-| C-RADIO                |            | 1024       |            | 82.28               | 85.27           |
+| RADIOv2.5-g            |            | 1024       |            | 83.33               | 85.34           |
+| C-RADIO                |            | 1024       |            | 82.24               | 85.27           |
 
 
 ### Segmentation metrics:
@@ -205,8 +206,8 @@ For summarization results we use the summarization token of the model. For Zero-
 | RADIOv2.5-B            | 48.94               | 84.35            | 73.87    |
 | RADIOv2.5-L            | 51.47               | 85.49            | 75.06    |
 | RADIOv2.5-H            | 51.58               | 85.97            | 76.14    |
-| C-RADIO                | 52.55               | 85.88            |          |
-| RADIOv2.5-g            | **54.56**           | **87.37**        |          |
+| RADIOv2.5-g            | 54.56               | 87.37            | 76.17    |
+| C-RADIO                | 52.55               | 85.88            | 74.82    |
 
 
 ### Vision-language model performance metrics in LLaVa 1.5:
