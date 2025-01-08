@@ -1,5 +1,6 @@
 [![Star on GitHub](https://img.shields.io/github/stars/NVlabs/RADIO.svg?style=social)](https://github.com/NVlabs/RADIO/stargazers)
 [![License](https://img.shields.io/badge/license-NC-blue.svg)](LICENSE)
+[![Paper](https://img.shields.io/badge/RADIO_AMP-arXiv.2412.07679-blue.svg)](https://arxiv.org/abs/2412.07679)
 [![Paper](https://img.shields.io/badge/PHI_Standardization-arXiv.2410.01680-orange.svg)](https://arxiv.org/abs/2410.01680)
 [![Paper](https://img.shields.io/badge/AM_RADIO-arXiv.2312.06709-blue.svg)](https://arxiv.org/abs/2312.06709)
 [![Paper](https://img.shields.io/badge/AM_RADIO-CVPR.2024-blue.svg)](https://openaccess.thecvf.com/content/CVPR2024/papers/Ranzinger_AM-RADIO_Agglomerative_Vision_Foundation_Model_Reduce_All_Domains_Into_One_CVPR_2024_paper.pdf)
@@ -12,7 +13,7 @@
 
 Official PyTorch implementation of \[CVPR 2024\] [**AM-RADIO: Agglomerative Vision Foundation Model - Reduce All Domains Into One**](https://arxiv.org/abs/2312.06709).
 
-Check out our latest preprint: [**PHI-S: Distribution Balancing for Label-Free Multi-Teacher Distillation**](https://arxiv.org/abs/2410.01680).
+Check out our latest preprints: [**PHI-S: Distribution Balancing for Label-Free Multi-Teacher Distillation**](https://arxiv.org/abs/2410.01680) and [**RADIO Amplified: Improved Baselines for Agglomerative Vision Foundation Models**](https://arxiv.org/abs/2412.07679).
 
 
 Mike Ranzinger, Greg Heinrich, [Jan Kautz](https://jankautz.com/), [Pavlo Molchanov](https://www.pmolchanov.com/).
@@ -21,7 +22,7 @@ Mike Ranzinger, Greg Heinrich, [Jan Kautz](https://jankautz.com/), [Pavlo Molcha
 
 For business inquiries, please visit our website and submit the form: [NVIDIA Research Licensing](https://www.nvidia.com/en-us/research/inquiries/)
 
-\[[PHI-S](https://arxiv.org/abs/2410.01680)\]\[[AM-RADIO](https://arxiv.org/abs/2312.06709)\]\[[BibTex](#citing-radio)\]
+\[[RADIO-Amplified](https://arxiv.org/abs/2412.07679)\]\[[PHI-S](https://arxiv.org/abs/2410.01680)\]\[[AM-RADIO](https://arxiv.org/abs/2312.06709)\]\[[BibTex](#citing-radio)\]
 
 <br clear="left"/>
 
@@ -29,6 +30,10 @@ For business inquiries, please visit our website and submit the form: [NVIDIA Re
 
 
 ## News/Release
+
+- [12.18.2024] We release C-RADIO, a commercial-friendly ViT-H/16 variant of RADIO under the [NVIDIA Open Model License Agreement](https://developer.download.nvidia.com/licenses/nvidia-open-model-license-agreement-june-2024.pdf) license!
+- [12.11.2024] We release RADIOv2.5 ViT-G/14, our biggest model yet!
+- [12.10.2024] We release \[[RADIO-Amplified](https://arxiv.org/abs/2412.07679)\] to ArXiv with details on our method to address the mode-switching issue (previously described in this [tech report](./RADIOv2.5_tech_report.md)) and our efficient VLM integration method.
 - [10.2.2024] 🔥🔥 RADIOv2.5 ViT-H/16 model is released. We have also released \[[PHI-S: Distribution Balancing for Label-Free Multi-Teacher Distillation](https://arxiv.org/abs/2410.01680)\] to ArXiv that details one of the major algorithm updates behind the version 2.5 releases.
 - [7.22.2024] 🔥 RADIOv2.5 ViT-B/16 and ViT-L/16 are released. For VLLM tasks, RADIOv2.5-B is as good or better than RADIOv2, and RADIOv2.5-L is much better! See [tech report](./RADIOv2.5_tech_report.md).
 - [4.30.2024] 🔥 README is updated with more metrics, Arxiv is updated with new results.
@@ -63,6 +68,7 @@ from PIL import Image
 import torch
 from torch.nn import functional as F
 from torchvision.transforms.functional import pil_to_tensor
+#model_version="radio_v2.5-g" # for RADIOv2.5-g model (ViT-H/14)
 model_version="radio_v2.5-h" # for RADIOv2.5-H model (ViT-H/16)
 # model_version="radio_v2.5-l" # for RADIOv2.5-L model (ViT-L/16)
 #model_version="radio_v2.5-b" # for RADIOv2.5-B model (ViT-B/16)
@@ -117,8 +123,10 @@ from transformers import AutoModel, CLIPImageProcessor
 
 # hf_repo = "nvidia/E-RADIO" # For E-RADIO.
 #hf_repo = "nvidia/RADIO-B" # For RADIO-B.
-hf_repo = "nvidia/RADIO-L" # For RADIO-L.
-# NOTE: "nvidia/RADIO-H" coming soon!
+hf_repo = "nvidia/RADIO" # For RADIO-H.
+#hf_repo = "nvidia/RADIO-g" # For RADIO-g.
+#hf_repo = "nvidia/C-RADIO" # For C-RADIO-H.
+#hf_repo = "nvidia/RADIO-L" # For RADIO-L.
 
 image_processor = CLIPImageProcessor.from_pretrained(hf_repo)
 model = AutoModel.from_pretrained(hf_repo, trust_remote_code=True)
@@ -138,7 +146,9 @@ Please see more details on usage in the [Quick Start](#quick-start---torchhub) s
 
 | Name         | Architecture | Precision | Teachers                                 | Throughput | Zero Shot Top-1 | kNN Top-1 | ADE20k    | VOC       | GQA       | TextVQA   | VQAv2     | SAM-COCO  |
 |--------------|--------------|-----------|------------------------------------------|------------|-----------------|-----------|-----------|-----------|-----------|-----------|-----------|-----------|
-| radio_v2.5-h | ViT-H/16-CPE | Float32   | DFN CLIP; SigLIP, DINOv2; SAM; Florence2 | 556        | 82.51           | 85.81     | **51.58** | **85.97** | **65.03** | **62.39** | **81.56** | 76.14     |
+| radio-g | DINOv2 ViT-g/14 | Float32   | DFN CLIP; SigLIP, DINOv2; SAM; | | | | **54.56** | **87.37** | | | | |
+| c-radio-h | ViT-H/16-CPE | Float32   | DFN CLIP; SigLIP, DINOv2; SAM; | 556        | 82.28           | 85.27     | 52.55 | 85.88 | 64.01 | 62.12 | 80.74 |     |
+| radio_v2.5-h | ViT-H/16-CPE | Float32   | DFN CLIP; SigLIP, DINOv2; SAM; Florence2 | 556        | 82.51           | 85.81     | 51.58 | **85.97** | **65.03** | **62.39** | **81.56** | 76.14     |
 | radio_v2.5-l | ViT-L/16-CPE | Float32   | DFN CLIP; SigLIP; DINOv2; SAM            |            | 81.01           | 84.68     | 51.47     | 85.49     | 64.13     | 61.93     | 81.02     | 75.06     |
 | radio_v2.5-b | ViT-B/16-CPE | Float32   | DFN CLIP; SigLIP; DINOv2; SAM            |            | 74.57           | 81.89     | 48.94     | 84.35     | 63.31     | 56.93     | 79.22     | 73.87     |
 | radio_v2.1   | ViT-H/16-CPE | BFloat16  | DFN CLIP; OpenAI CLIP; DINOv2; SAM       | 556        | **82.93**       | **86.06** | 51.34     | 84.71     | 63.01     | 56.32     | 79.28     | **76.58** |
@@ -170,6 +180,7 @@ For summarization results we use the summarization token of the model. For Zero-
 | RADIOv2.5-B            |            | 768        |            | 74.57               |                 |
 | RADIOv2.5-L            |            | 1024       |            | 81.01               |                 |
 | RADIOv2.5-H            |            | 1024       |            | 82.51               | 85.81           |
+| C-RADIO                |            | 1024       |            | 82.28               | 85.27           |
 
 
 ### Segmentation metrics:
@@ -193,7 +204,9 @@ For summarization results we use the summarization token of the model. For Zero-
 | RADIOv2.1              | 51.34               | 84.71            | 76.23    |
 | RADIOv2.5-B            | 48.94               | 84.35            | 73.87    |
 | RADIOv2.5-L            | 51.47               | 85.49            | 75.06    |
-| RADIOv2.5-H            | **51.58**           | **85.97**        | 76.14    |
+| RADIOv2.5-H            | 51.58               | 85.97            | 76.14    |
+| C-RADIO                | 52.55               | 85.88            |          |
+| RADIOv2.5-g            | **54.56**           | **87.37**        |          |
 
 
 ### Vision-language model performance metrics in LLaVa 1.5:
@@ -379,8 +392,7 @@ output = model(images)
 <details>
 <summary>HuggingFace hub</summary>
 
-
-
+All our HuggingFace models are available under the umbrella of the [Nvidia RADIO collection](https://huggingface.co/collections/nvidia/radio-669f77f1dd6b153f007dd1c6).
 
 </details>
 
@@ -421,6 +433,22 @@ _Coming Soon_
 ## Citing RADIO
 
 If you find this repository useful, please consider giving a star and citation:
+
+### RADIO Amplified: Improved Baselines for Agglomerative Vision Foundation Models
+
+#### ArXiv Reference:
+
+```bibtex
+@misc{heinrich2024radioamplifiedimprovedbaselines,
+      title={RADIO Amplified: Improved Baselines for Agglomerative Vision Foundation Models},
+      author={Greg Heinrich and Mike Ranzinger and Hongxu and Yin and Yao Lu and Jan Kautz and Andrew Tao and Bryan Catanzaro and Pavlo Molchanov},
+      year={2024},
+      eprint={2412.07679},
+      archivePrefix={arXiv},
+      primaryClass={cs.CV},
+      url={https://arxiv.org/abs/2412.07679},
+}
+```
 
 ### PHI-S: Distribution Balancing for Label-Free Multi-Teacher Distillation
 
