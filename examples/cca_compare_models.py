@@ -114,7 +114,7 @@ def compute_feature_matrix(
                 d = int(round(math.sqrt(my_output.shape[1])))
                 my_output = rearrange(my_output, 'b (h w) c -> b c h w', h=d, w=d)
 
-            all_outputs.append(my_output)
+            all_outputs.append(my_output.half())
 
     all_outputs = torch.cat(all_outputs, dim=0)
 
@@ -129,7 +129,7 @@ def compute_feature_matrix(
 def get_feature_matrix(
     cache_dir: str, model_name: str, which: str,
     *args, **kwargs
-):
+) -> torch.Tensor:
     cache_filename = get_cache_filename(cache_dir, model_name, which)
 
     if os.path.exists(cache_filename):
@@ -141,6 +141,27 @@ def get_feature_matrix(
         torch.save(features, cache_filename)
 
     return features
+
+
+def get_a_to_b_fidelity(a_features: torch.Tensor, b_features: torch.Tensor, proj_a: torch.Tensor, proj_b: torch.Tensor) -> float:
+    inv_proj_b = torch.linalg.pinv(proj_b)
+    a_to_b_proj = proj_a @ inv_proj_b
+
+    a_features = a_features @ a_to_b_proj
+    fidelity = (1 / F.mse_loss(a_features, b_features, reduction='none').mean(dim=0)).mean(dim=0).item()
+    return fidelity
+
+
+def compute_smooth_rank(features: torch.Tensor) -> float:
+    MAX_SAMPLES = 1000000
+    if features.shape[0] > MAX_SAMPLES:
+        subset = torch.ones(features.shape[0], dtype=torch.float32, device=features.device)
+        subset = torch.multinomial(subset, MAX_SAMPLES, replacement=False)
+        subset = torch.sort(subset).values
+        features = features[subset]
+
+    eig = torch.linalg.svdvals(features)
+    return smooth_rank(eig).item()
 
 
 @torch.inference_mode()
@@ -186,21 +207,20 @@ def main(rank: int = 0, world_size: int = 1):
     if rank > 0:
         return
 
-    a_features = a_features.cuda().double()
-    b_features = b_features.cuda().double()
-
-    # n_samples = 20000
-    # if a_features.shape[0] > n_samples:
-    #     weights = torch.full((a_features.shape[0],), 1.0, device=a_features.device)
-    #     sel_idxs = torch.multinomial(weights, num_samples=n_samples, replacement=False)
-    #     a_features = a_features[sel_idxs]
-    #     b_features = b_features[sel_idxs]
+    a_features = a_features.cuda().float()
+    b_features = b_features.cuda().float()
 
     a_mean, a_phi_s = get_phi_s_matrix(a_features)
     b_mean, b_phi_s = get_phi_s_matrix(b_features)
 
     a_features = (a_features - a_mean) @ a_phi_s.T
     b_features = (b_features - b_mean) @ b_phi_s.T
+
+    a_smooth_rank = compute_smooth_rank(a_features)
+    b_smooth_rank = compute_smooth_rank(b_features)
+
+    print(f'A Smooth Rank: {a_smooth_rank:.4f} / {a_features.shape[1]}')
+    print(f'B Smooth Rank: {b_smooth_rank:.4f} / {b_features.shape[1]}')
 
     cov_ab = a_features.T @ b_features / a_features.shape[0]
     cov_aa = a_features.T @ a_features / a_features.shape[0] + 1e-6 * torch.eye(a_features.shape[1], device=a_features.device)
@@ -219,29 +239,13 @@ def main(rank: int = 0, world_size: int = 1):
     linear_correlation = S.sum().item()
     print(f'CCA Rank: {linear_correlation:.4f}')
 
-    a_eig = torch.linalg.svdvals(a_features)
-    a_smooth_rank = smooth_rank(a_eig)
-    print(f'A Smooth Rank: {a_smooth_rank.item():.4f}')
-
-    b_eig = torch.linalg.svdvals(b_features)
-    b_smooth_rank = smooth_rank(b_eig)
-    print(f'B Smooth Rank: {b_smooth_rank.item():.4f}')
-
     proj_a = inv_sqrt_cov_aa @ U
     proj_b = inv_sqrt_cov_bb @ V
 
-    proj_a_features = a_features @ proj_a
-    proj_b_features = b_features @ proj_b
+    a_to_b_fidelity = get_a_to_b_fidelity(a_features, b_features, proj_a, proj_b)
+    b_to_a_fidelity = get_a_to_b_fidelity(b_features, a_features, proj_b, proj_a)
 
-    inv_proj_a = torch.linalg.pinv(proj_a)
-    inv_proj_b = torch.linalg.pinv(proj_b)
-
-    a_to_b = proj_a_features @ inv_proj_b
-    a_to_b_fidelity = (1 / F.mse_loss(a_to_b, b_features, reduction='none').mean(dim=0)).mean().item()
     print(f'A to B Fidelity: {a_to_b_fidelity:.4f}')
-
-    b_to_a = proj_b_features @ inv_proj_a
-    b_to_a_fidelity = (1 / F.mse_loss(b_to_a, a_features, reduction='none').mean(dim=0)).mean().item()
     print(f'B to A Fidelity: {b_to_a_fidelity:.4f}')
 
     pass
