@@ -16,7 +16,7 @@ from timm.models.vision_transformer import VisionTransformer, _create_vision_tra
 def vit_tiny_patch14_224(pretrained=False, **kwargs) -> VisionTransformer:
     """ ViT-Tiny (Vit-Ti/16)
     """
-    model_args = dict(patch_size=14, embed_dim=192, depth=12, num_heads=3)
+    model_args = dict(patch_size=14, embed_dim=192, depth=12, num_heads=3, weight_init='skip')
     model = _create_vision_transformer('vit_tiny_patch14_224', pretrained=pretrained, **dict(model_args, **kwargs))
     return model
 
@@ -25,7 +25,7 @@ def vit_tiny_patch14_224(pretrained=False, **kwargs) -> VisionTransformer:
 def vit_small_patch14_224(pretrained=False, **kwargs) -> VisionTransformer:
     """ ViT-Small (ViT-S/16)
     """
-    model_args = dict(patch_size=14, embed_dim=384, depth=12, num_heads=6)
+    model_args = dict(patch_size=14, embed_dim=384, depth=12, num_heads=6, weight_init='skip')
     model = _create_vision_transformer('vit_small_patch16_224', pretrained=pretrained, **dict(model_args, **kwargs))
     return model
 
@@ -35,7 +35,7 @@ def vit_base_patch14_224(pretrained=False, **kwargs) -> VisionTransformer:
     """ ViT-Base (ViT-B/14) from original paper (https://arxiv.org/abs/2010.11929).
     ImageNet-1k weights fine-tuned from in21k @ 224x224, source https://github.com/google-research/vision_transformer.
     """
-    model_args = dict(patch_size=14, embed_dim=768, depth=12, num_heads=12)
+    model_args = dict(patch_size=14, embed_dim=768, depth=12, num_heads=12, weight_init='skip')
     model = _create_vision_transformer('vit_base_patch14_224', pretrained=pretrained, **dict(model_args, **kwargs))
     return model
 
@@ -44,7 +44,7 @@ def vit_base_patch14_224(pretrained=False, **kwargs) -> VisionTransformer:
 def vit_huge_patch16_224(pretrained=False, **kwargs) -> VisionTransformer:
     """ ViT-Huge model (ViT-H/16) from original paper (https://arxiv.org/abs/2010.11929).
     """
-    model_args = dict(patch_size=16, embed_dim=1280, depth=32, num_heads=16)
+    model_args = dict(patch_size=16, embed_dim=1280, depth=32, num_heads=16, weight_init='skip')
     if pretrained:
         # There is no pretrained version of ViT-H/16, but we can adapt a ViT-H/14 for this purpose
         model = _create_vision_transformer('vit_huge_patch14_224', pretrained=True, **dict(model_args, **kwargs))
@@ -57,7 +57,7 @@ def vit_huge_patch16_224(pretrained=False, **kwargs) -> VisionTransformer:
 def vit_huge_patch16_224_mlpnorm(pretrained=False, **kwargs) -> VisionTransformer:
     """ ViT-Huge model (ViT-H/16) from original paper (https://arxiv.org/abs/2010.11929).
     """
-    model = vit_huge_patch16_224(pretrained=pretrained, **kwargs)
+    model = vit_huge_patch16_224(pretrained=pretrained, weight_init='skip', **kwargs)
 
     for m in model.modules():
         if isinstance(m, Mlp) and not isinstance(m.norm, nn.LayerNorm):
@@ -67,8 +67,17 @@ def vit_huge_patch16_224_mlpnorm(pretrained=False, **kwargs) -> VisionTransforme
 
 
 @register_model
+def vit_giant_patch16_224(pretrained=False, **kwargs) -> VisionTransformer:
+    """ ViT-giant model (ViT-g/16) from original paper (https://arxiv.org/abs/2010.11929).
+    """
+    model_args = dict(patch_size=16, embed_dim=1536, depth=40, num_heads=24, weight_init='skip')
+    model = _create_vision_transformer('vit_giant_patch16_224', pretrained=False, **dict(model_args, **kwargs))
+    return model
+
+
+@register_model
 def vit_bigG_patch14_224(pretrained=False, **kwargs) -> VisionTransformer:
-    model_args = dict(patch_size=14, embed_dim=1664, depth=48, num_heads=16, init_values=1e-6)
+    model_args = dict(patch_size=14, embed_dim=1664, depth=48, num_heads=16, init_values=1e-6, weight_init='skip')
     model = _create_vision_transformer('vit_bigG_patch14', pretrained=False, **dict(model_args, **kwargs))
     return model
 
