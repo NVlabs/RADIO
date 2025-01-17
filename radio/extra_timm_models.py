@@ -9,7 +9,15 @@
 from torch import nn
 
 from timm.models import register_model
-from timm.models.vision_transformer import VisionTransformer, _create_vision_transformer, Mlp
+from timm.models.vision_transformer import (
+    VisionTransformer,
+    _create_vision_transformer as _timm_create_vision_transformer,
+    Mlp,
+    Block,
+    LayerScale as TIMMLayerScale,
+)
+
+from . import dinov2_arch
 
 
 @register_model
@@ -72,3 +80,25 @@ def vit_bigG_patch14_224(pretrained=False, **kwargs) -> VisionTransformer:
     model = _create_vision_transformer('vit_bigG_patch14', pretrained=False, **dict(model_args, **kwargs))
     return model
 
+
+def _create_vision_transformer(*args, **kwargs):
+    model = _timm_create_vision_transformer(*args, **kwargs)
+    _patch_layer_scale(model)
+    return model
+
+
+def _patch_layer_scale(model: VisionTransformer):
+    def replace_ls(old_ls: TIMMLayerScale):
+        new_ls = dinov2_arch.LayerScale(old_ls.gamma.shape[0], inplace=old_ls.inplace)
+        new_ls.load_state_dict(old_ls.state_dict())
+        return new_ls
+
+    # Monkey patch: Replace TIMM's LayerScale with our modified DINOv2 one, that uses a param name
+    # other than gamma, so that HFHub doesn't mess with it!
+    for mod in model.modules():
+        if isinstance(mod, Block):
+            if isinstance(mod.ls1, TIMMLayerScale):
+                mod.ls1 = replace_ls(mod.ls1)
+            if isinstance(mod.ls2, TIMMLayerScale):
+                mod.ls2 = replace_ls(mod.ls2)
+    pass
