@@ -49,8 +49,12 @@ except ImportError:
 LAYER_STATS = dict()
 
 
-def get_cache_filename(cache_dir: str, model_name: str, which: str):
-    hashname = hashlib.md5(model_name.encode()).hexdigest()
+def get_cache_filename(cache_dir: str, model_name: str, which: str, adaptor: str):
+    mname = model_name
+    if adaptor:
+        mname = mname + f'_{adaptor}'
+
+    hashname = hashlib.md5(mname.encode()).hexdigest()
     cache_file = os.path.join(cache_dir, f'{which}_{hashname}.pth')
     return cache_file
 
@@ -59,6 +63,7 @@ def get_cache_filename(cache_dir: str, model_name: str, which: str):
 def compute_feature_matrix(
     model: nn.Module,
     preproc: nn.Module,
+    adaptor: str,
     num_samples: int,
     resolution: int,
     which: str = 'features',
@@ -108,6 +113,8 @@ def compute_feature_matrix(
 
         with torch.autocast('cuda', dtype=torch.bfloat16):
             outputs = model(images)
+            if adaptor:
+                outputs = outputs[adaptor]
             my_output: torch.Tensor = outputs[which_idx]
 
             if my_output.ndim == 3:
@@ -127,18 +134,20 @@ def compute_feature_matrix(
 
 
 def get_feature_matrix(
-    cache_dir: str, model_name: str, which: str,
+    cache_dir: str, model_name: str, which: str, adaptor: str,
     *args, **kwargs
 ) -> torch.Tensor:
-    cache_filename = get_cache_filename(cache_dir, model_name, which)
+    cache_filename = get_cache_filename(cache_dir, model_name, which, adaptor)
 
     if os.path.exists(cache_filename):
         features = torch.load(cache_filename, map_location='cpu', weights_only=True)
     else:
-        model, preproc, _ = load_model(model_name)
-        features = compute_feature_matrix(model, preproc, *args, **kwargs)
+        model, preproc, _ = load_model(model_name, adaptor_names=adaptor)
+        features = compute_feature_matrix(model, preproc, adaptor, *args, **kwargs)
         os.makedirs(cache_dir, exist_ok=True)
         torch.save(features, cache_filename)
+        del model
+        gc.collect()
 
     return features
 
@@ -175,6 +184,8 @@ def main(rank: int = 0, world_size: int = 1):
     parser.add_argument('-b', '--model-b', default='radio_v2.5-b')
     parser.add_argument('--a-res', type=int, default=432)
     parser.add_argument('--b-res', type=int, default=432)
+    parser.add_argument('--a-adaptor', type=str, default=None)
+    parser.add_argument('--b-adaptor', type=str, default=None)
     parser.add_argument('-d', '--dataset', default='imagenet-1k', help='The name of the dataset to classify')
     parser.add_argument('--split', default='validation', help='The dataset split to use.')
     parser.add_argument('-n', default=1000, type=int, help='The number of samples to load')
@@ -192,13 +203,15 @@ def main(rank: int = 0, world_size: int = 1):
         num_samples=args.n, which=args.which, cache_dir=args.cache_dir, dataset=args.dataset,
         split=args.split, rank=rank, world_size=world_size, batch_size=args.batch_size,
     )
-    a_features = get_feature_matrix(model_name=args.model_a, resolution=args.a_res, **common_kwargs)
-    b_features = get_feature_matrix(model_name=args.model_b, resolution=args.b_res, **common_kwargs)
+    a_features = get_feature_matrix(model_name=args.model_a, resolution=args.a_res, adaptor=args.a_adaptor, **common_kwargs)
+    b_features = get_feature_matrix(model_name=args.model_b, resolution=args.b_res, adaptor=args.b_adaptor, **common_kwargs)
 
     if a_features.ndim == 4:
         min_shape = tuple(min(d1, d2) for d1, d2 in zip(a_features.shape[-2:], b_features.shape[-2:]))
-        a_features = F.interpolate(a_features, size=min_shape, mode='bilinear', align_corners=False)
-        b_features = F.interpolate(b_features, size=min_shape, mode='bilinear', align_corners=False)
+        if a_features.shape[-2:] != min_shape:
+            a_features = F.interpolate(a_features, size=min_shape, mode='bilinear', align_corners=False)
+        if b_features.shape[-2:] != min_shape:
+            b_features = F.interpolate(b_features, size=min_shape, mode='bilinear', align_corners=False)
         a_features = rearrange(a_features, 'b c h w -> (b h w) c')
         b_features = rearrange(b_features, 'b c h w -> (b h w) c')
 
@@ -223,14 +236,18 @@ def main(rank: int = 0, world_size: int = 1):
     print(f'B Smooth Rank: {b_smooth_rank:.4f} / {b_features.shape[1]}')
 
     cov_ab = a_features.T @ b_features / a_features.shape[0]
-    cov_aa = a_features.T @ a_features / a_features.shape[0] + 1e-6 * torch.eye(a_features.shape[1], device=a_features.device)
-    cov_bb = b_features.T @ b_features / a_features.shape[0] + 1e-6 * torch.eye(b_features.shape[1], device=a_features.device)
+    cov_aa = torch.cov(a_features.T) # a_features.T @ a_features / a_features.shape[0] + 1e-6 * torch.eye(a_features.shape[1], device=a_features.device)
+    cov_bb = torch.cov(b_features.T) # b_features.T @ b_features / a_features.shape[0] + 1e-6 * torch.eye(b_features.shape[1], device=a_features.device)
 
     aE, aL = torch.linalg.eigh(cov_aa)
     bE, bL = torch.linalg.eigh(cov_bb)
 
-    inv_sqrt_cov_aa = aL @ torch.diag(1.0 / torch.sqrt(aE)) @ aL.T
-    inv_sqrt_cov_bb = bL @ torch.diag(1.0 / torch.sqrt(bE)) @ bL.T
+    def invsqrt(v: torch.Tensor) -> torch.Tensor:
+        v = torch.where(v > 0, torch.rsqrt(v), 0)
+        return v.diag()
+
+    inv_sqrt_cov_aa = aL @ invsqrt(aE) @ aL.T
+    inv_sqrt_cov_bb = bL @ invsqrt(bE) @ bL.T
 
     T = inv_sqrt_cov_aa @ cov_ab @ inv_sqrt_cov_bb
 
