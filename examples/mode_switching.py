@@ -107,8 +107,8 @@ def main(rank: int = 0, world_size: int = 1):
     teacher.cuda().eval()
     teacher_preprocessor.cuda().eval()
 
-    first_res = int(math.floor(224 / radio.patch_size) * radio.patch_size)
-    final_res = int(math.ceil(1024 / radio.patch_size) * radio.patch_size)
+    first_res = int(math.floor(196 / radio.patch_size) * radio.patch_size)
+    final_res = int(math.ceil(1536 / radio.patch_size) * radio.patch_size)
     resolutions = list(range(first_res, final_res + radio.patch_size, radio.patch_size))
 
     # Get the subset of resolutions for this rank

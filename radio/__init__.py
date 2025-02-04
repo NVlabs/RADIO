@@ -14,3 +14,4 @@ from .adaptor_base import AdaptorInput, RadioOutput, AdaptorBase
 # Enable support for other model types via the timm register_model mechanism
 from . import extra_timm_models
 from . import extra_models
+from . import vision_transformer_xpos

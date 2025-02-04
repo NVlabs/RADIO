@@ -4,14 +4,14 @@ set -o xtrace
 ROOT="vis_denoise"
 N="128"
 
-DATASET="/lustre/fs6/portfolios/llmservice/users/mranzinger/data/radio/paper_images"
+DATASET="/lustre/fsw/portfolios/llmservice/users/mranzinger/data/radio/paper_images"
 # RADIOV2="/lustre/fs6/portfolios/llmservice/users/mranzinger/output/evfm/ohem/3-13-24_vit-h-16_bf16_ep50/checkpoints/radio_v2.1_bf16.pth.tar"
 # RADIOV2="/lustre/fs6/portfolios/llmservice/users/mranzinger/output/evfm/ohem/3-9-24_vit-h-16_bf16_ep10/checkpoints/radio_v2.1_bf16.pth.tar"
 RADIOV2="radio_v2.1"
 # COMM_RADIO="/lustre/fs6/portfolios/llmservice/users/mranzinger/output/evfm/commercial_iad/n16_4-14-24_vit-h-16_dfn-siglip_low-res_ep150/checkpoints/checkpoint-113.pth.tar"
-COMM_RADIO="/lustre/fs6/portfolios/llmservice/users/mranzinger/output/evfm/commercial/ord/dual-res/checkpoint-77.pth.tar"
+COMM_RADIO="/lustre/fsw/portfolios/llmservice/users/mranzinger/output/evfm/commercial/ord/dual-res/checkpoint-77.pth.tar"
 
-E_RADIO="/lustre/fs6/portfolios/llmservice/users/mranzinger/output/evfm/eradio/n8_3-25-24_eradio_stage3-alt_s2ep77/checkpoints/eradio_v2.pth.tar"
+E_RADIO="/lustre/fsw/portfolios/llmservice/users/mranzinger/output/evfm/eradio/n8_3-25-24_eradio_stage3-alt_s2ep77/checkpoints/eradio_v2.pth.tar"
 
 export PYTHONPATH=.:examples
 
@@ -146,11 +146,53 @@ export PYTHONPATH=.:examples
 # python examples/visualize_features.py --dataset $DATASET --model-version radio_v2.5-l -n $N --resolution 1024 1024 --adaptor-name sam --output-dir $ROOT/radiov2.5/vit-l/1024_sam
 # python examples/visualize_features.py --dataset $DATASET --model-version radio_v2.5-l -n $N --resolution 2048 2048 --adaptor-name sam --output-dir $ROOT/radiov2.5/vit-l/2048_sam
 
-python examples/visualize_features.py --dataset $DATASET --model-version radio_v2.5-h -n $N --resolution 256 --output-dir $ROOT/radiov2.5/vit-h/256min
-python examples/visualize_features.py --dataset $DATASET --model-version radio_v2.5-h -n $N --resolution 512 --output-dir $ROOT/radiov2.5/vit-h/512min
-python examples/visualize_features.py --dataset $DATASET --model-version radio_v2.5-h -n $N --resolution 768 --output-dir $ROOT/radiov2.5/vit-h/768min
-python examples/visualize_features.py --dataset $DATASET --model-version radio_v2.5-h -n $N --resolution 1024 --output-dir $ROOT/radiov2.5/vit-h/1024min
-python examples/visualize_features.py --dataset $DATASET --model-version radio_v2.5-h -n $N --resolution 2048 --output-dir $ROOT/radiov2.5/vit-h/2048min
+# python examples/visualize_features.py --dataset $DATASET --model-version radio_v2.5-h -n $N --resolution 256 --output-dir $ROOT/radiov2.5/vit-h/256min
+# python examples/visualize_features.py --dataset $DATASET --model-version radio_v2.5-h -n $N --resolution 512 --output-dir $ROOT/radiov2.5/vit-h/512min
+# python examples/visualize_features.py --dataset $DATASET --model-version radio_v2.5-h -n $N --resolution 768 --output-dir $ROOT/radiov2.5/vit-h/768min
+# python examples/visualize_features.py --dataset $DATASET --model-version radio_v2.5-h -n $N --resolution 1024 --output-dir $ROOT/radiov2.5/vit-h/1024min
+# python examples/visualize_features.py --dataset $DATASET --model-version radio_v2.5-h -n $N --resolution 2048 --output-dir $ROOT/radiov2.5/vit-h/2048min
+
+fspath="/lustre/fsw/portfolios/llmservice/users/mranzinger/output/evfm/xpos"
+resolutions=(256 512 768 1024 2048)
+adaptors=("" "clip" "paligemma-448" "sam")
+for adaptor in "${adaptors[@]}";
+do
+    AD_FLAG=""
+    AD_SUFF=""
+    VIZ_PATH="backbone"
+    if [[ -n "$adaptor" ]]; then
+        AD_FLAG="--adaptor-name $adaptor"
+        AD_SUFF="_${adaptor}"
+        VIZ_PATH="$adaptor"
+    fi
+
+    JOINED=()
+    for modname in "vit-l-16_pali_bl_s3" "vit-l-16_pali_xpos_v2_s3";
+    do
+        chk="${fspath}/${modname}/checkpoints/last_release_half.pth.tar"
+
+        OUTDIRS=("$ROOT/xpos/${modname}/512min${AD_SUFF}/orig")
+        for res in "${resolutions[@]}";
+        do
+            outdir="$ROOT/xpos/${modname}/${res}min${AD_SUFF}"
+
+            OUTDIRS+=("${outdir}/viz/${VIZ_PATH}")
+            if [[ ! -d "$outdir" ]]; then
+                python examples/visualize_features.py --dataset $DATASET --model-version "$chk" -n $N --resolution $res $AD_FLAG --output-dir "$outdir" --interpolation nearest
+            fi
+        done
+
+        join_path="$ROOT/xpos/${modname}/join${AD_SUFF}"
+        if [[ ! -d "$join_path" ]]; then
+            python tools/im_join.py --input-dirs ${OUTDIRS[@]} --output-dir "$join_path" --cols 6 --header 64 --header-text "0,0,${modname}"
+        fi
+        if [[ -d "$join_path" ]]; then
+            JOINED+=("$join_path")
+        fi
+    done
+
+    python tools/im_join.py --input-dirs ${JOINED[@]} --output-dir "$ROOT/xpos/join${AD_SUFF}" --cols 1 --header 0
+done
 
 # python examples/visualize_features.py --dataset $DATASET --model-version radio_v2.5-h -n $N --resolution 256 256   --adaptor-name dino_v2 --output-dir $ROOT/radiov2.5/vit-h/256_dinov2
 # python examples/visualize_features.py --dataset $DATASET --model-version radio_v2.5-h -n $N --resolution 432 432   --adaptor-name dino_v2 --output-dir $ROOT/radiov2.5/vit-h/432_dinov2
