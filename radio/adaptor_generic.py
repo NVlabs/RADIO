@@ -25,8 +25,9 @@ class GenericAdaptor(AdaptorBase):
             extra_args['upsample_factor'] = ups
 
         if state is not None:
-            self.head_mlp = create_mlp_from_state(main_config.mlp_version, state, 'summary.', spectral_weights=main_config.spectral_heads)
-            self.feat_mlp = create_mlp_from_state(main_config.mlp_version, state, 'feature.', spectral_weights=main_config.spectral_heads, **extra_args)
+            spectral_heads = getattr(main_config, 'spectral_heads', False)
+            self.head_mlp = create_mlp_from_state(main_config.mlp_version, state, 'summary.', spectral_weights=spectral_heads)
+            self.feat_mlp = create_mlp_from_state(main_config.mlp_version, state, 'feature.', spectral_weights=spectral_heads, **extra_args)
         else:
             assert mlp_config is not None, "Config must not be None if state is None"
 
