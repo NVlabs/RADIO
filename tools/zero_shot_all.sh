@@ -4,9 +4,9 @@
 # Default values
 CSV='zero_shot.csv'
 PATCH_SIZE=16
-MIN_RES=""
+MIN_RES=0
 STEP=""
-MAX_RES=""
+MAX_RES=100000
 
 # Parse command-line options
 while [[ "$#" -gt 0 ]]; do
@@ -43,25 +43,19 @@ if [ -z "$CHK" ]; then
     exit 1
 fi
 
-if [ -z "$MIN_RES" ]; then
-    MIN_RES=$((256 * PATCH_SIZE / 16))
-fi
-
-if [ -z "$MAX_RES" ]; then
-    MAX_RES=$((1024 * PATCH_SIZE / 16))
-fi
-
-if [ -z "$STEP" ]; then
-    STEP=$((32 * PATCH_SIZE / 16))
-fi
-
 export PYTHONPATH=.:examples
 
 # Calculate the sequence of resolutions based on the patch size
+P16_RESOLUTIONS=(224 256 432 512 768 1024)
 RESOLUTIONS=()
-for res in $(seq $MIN_RES $STEP $MAX_RES); do
-    RESOLUTIONS+=($res)
+for res in ${P16_RESOLUTIONS[@]}; do
+    new_res=$((res * PATCH_SIZE / 16))
+    if [ $new_res -ge $MIN_RES ] && [ $new_res -le $MAX_RES ]; then
+        RESOLUTIONS+=($new_res)
+    fi
 done
+
+echo "Zero Shot Resolutions: ${RESOLUTIONS[@]}"
 
 trun () {
     LOGLEVEL=WARNING NCCL_DEBUG=WARN torchrun --nproc_per_node=$SUBMIT_GPUS --master_addr=$MASTER_ADDR --master_port=$MASTER_PORT --nnodes=$NUM_NODES --node_rank=$NODE_RANK "$@"
@@ -76,10 +70,17 @@ for res in "${RESOLUTIONS[@]}"; do
     trun examples/zero_shot_imagenet.py --model-version "$CHK" --resolution "$res" --csv-out "$CSV" | grep "Top 1"
 done
 
-echo "Resolution: 1024 1024 - VitDet: 16"
-trun examples/zero_shot_imagenet.py --model-version "$CHK" --resolution 1024 1024 --vitdet-window-size 16 --csv-out "$CSV" | grep "Top 1"
+echo "Resolution: ${RESOLUTIONS[-1]} ${RESOLUTIONS[-1]} - VitDet: 16"
+# trun examples/zero_shot_imagenet.py --model-version "$CHK" --resolution ${RESOLUTIONS[-1]} ${RESOLUTIONS[-1]} --vitdet-window-size 16 --csv-out "$CSV" | grep "Top 1"
 
-KNN_RESOLUTIONS=(512)
+P16_KNN_RESOLUTIONS=(512)
+KNN_RESOLUTIONS=()
+for res in ${P16_KNN_RESOLUTIONS[@]}; do
+    new_res=$((res * PATCH_SIZE / 16))
+    KNN_RESOLUTIONS+=($new_res)
+done
+
+echo "KNN Resolutions: ${KNN_RESOLUTIONS[@]}"
 
 for res in "${KNN_RESOLUTIONS[@]}"; do
     echo "KNN Resolution: $res"
