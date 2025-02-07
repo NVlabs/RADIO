@@ -99,7 +99,7 @@ class MLP2(nn.Module):
             if patch_size is None:
                 raise ValueError(f'`patch_size` cannot be `None` when the head\'s `upsample_factor > 1`!')
             h, w = tuple(d // patch_size for d in images.shape[-2:])
-            x = rearrange(x, 'b (h w) (u1 u2 c) -> b (u1 h u2 w) c',
+            x = rearrange(x, 'b (h w) (u1 u2 c) -> b (h u1 w u2) c',
                           h=h, w=w, u1=self.upsample_factor, u2=self.upsample_factor,
                           c=self._real_output_dim)
 

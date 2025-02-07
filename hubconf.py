@@ -86,13 +86,17 @@ def radio_model(
     mod.to(dtype=dtype)
     conditioner.dtype = dtype
 
-    name_to_idx_map = dict()
-    for i, t in enumerate(chk['args'].teachers):
-        if t.get('use_summary', True):
-            name = t['name']
-            if name not in name_to_idx_map:
-                name_to_idx_map[name] = i
-    summary_idxs = torch.tensor(sorted(name_to_idx_map.values()), dtype=torch.int64)
+    cls_token_per_teacher = getattr(chk['args'], 'cls_token_per_teacher', True)
+    if cls_token_per_teacher:
+        name_to_idx_map = dict()
+        for i, t in enumerate(chk['args'].teachers):
+            if t.get('use_summary', True):
+                name = t['name']
+                if name not in name_to_idx_map:
+                    name_to_idx_map[name] = i
+        summary_idxs = torch.tensor(sorted(name_to_idx_map.values()), dtype=torch.int64)
+    else:
+        summary_idxs = torch.tensor([0], dtype=torch.int64)
 
     if adaptor_names is None:
         adaptor_names = []
@@ -127,7 +131,7 @@ def radio_model(
                 adaptor_state['feature' + k[len(pf_name_feat):]] = v
 
         adaptor = adaptor_registry.create_adaptor(ttype, chk["args"], tconf, adaptor_state)
-        adaptor.head_idx = tidx
+        adaptor.head_idx = tidx if cls_token_per_teacher else 0
         adaptors[adaptor_name] = adaptor
 
     feat_norm_sd = get_prefix_state_dict(state_dict, '_feature_normalizer.')

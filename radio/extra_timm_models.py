@@ -17,6 +17,7 @@ from timm.models.vision_transformer import (
     LayerScale as TIMMLayerScale,
 )
 
+# Import these to also register them
 from . import dinov2_arch
 
 

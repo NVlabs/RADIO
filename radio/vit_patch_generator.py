@@ -107,6 +107,10 @@ class ViTPatchGenerator(nn.Module):
         return self.cls_token.num_tokens
 
     @property
+    def num_cls_patches(self):
+        return self.cls_token.num_patches
+
+    @property
     def num_registers(self):
         return self.cls_token.num_registers
 
