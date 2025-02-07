@@ -108,6 +108,7 @@ def main(rank: int = 0, world_size: int = 1):
                         type=str,
                         help='How to aggregate intermediate layers',
                         choices=['sparse', 'dense'])
+    parser.add_argument('--interpolation', default='bilinear', type=str, help='Interpolation mode')
 
     args, _ = parser.parse_known_args()
 
@@ -116,6 +117,14 @@ def main(rank: int = 0, world_size: int = 1):
     random.seed(42 + rank)
 
     rank_print(f'Loading model: "{args.model_version}", ViTDet: {args.vitdet_window_size}, Adaptor: "{args.adaptor_name}", Resolution: {args.resolution}, Max: {args.max_dim}...')
+    if os.path.isdir(args.model_version):
+        for chk_name in ['last_release_half.pth.tar', 'last_release.pth.tar', 'last.pth.tar']:
+            chk_path = os.path.join(args.model_version, chk_name)
+            if os.path.exists(chk_path):
+                args.model_version = chk_path
+                print(f'Using "{chk_path}" as model version.')
+                break
+
     model, preprocessor, info = load_model(args.model_version, vitdet_window_size=args.vitdet_window_size, adaptor_names=args.adaptor_name,
                                            torchhub_repo=args.torchhub_repo)
     model.to(device=device).eval()
@@ -192,14 +201,14 @@ def main(rank: int = 0, world_size: int = 1):
                         return_prefix_tokens=False,
                         norm=False,
                         stop_early=True,
-                        output_fmt='NLC',
+                        output_fmt='NCHW',
                         intermediates_only=True,
                         aggregation=args.intermediate_aggregation,
                     )
                     assert args.adaptor_name is None
                     all_feat = [o[1] for o in outputs]
                 else:
-                    output = model(p_images)
+                    output = model(p_images, feature_fmt='NCHW')
                     if args.adaptor_name:
                         all_feat = [
                             output['backbone'].features,
@@ -208,19 +217,7 @@ def main(rank: int = 0, world_size: int = 1):
                     else:
                         all_feat = [output[1]]
 
-            if images.shape[-2] != images.shape[-1]:
-                num_rows = images.shape[-2] // patch_size
-                num_cols = images.shape[-1] // patch_size
-            else:
-                num_rows = int(round(math.sqrt(all_feat[0].shape[1])))
-                num_cols = num_rows
-
-            # m b h w c
-            all_feat = [
-                rearrange(f, 'b (h w) c -> b h w c', h=num_rows, w=num_cols).float()
-                for f in all_feat
-            ]
-            # all_feat = rearrange(all_feat, 'b m (h w) c -> b m h w c', h=num_rows, w=num_cols).float()
+            all_feat = [rearrange(f, 'b c h w -> b h w c').float() for f in all_feat]
 
             # b m h w c
             all_feat = list(zip(*all_feat))
@@ -228,7 +225,7 @@ def main(rank: int = 0, world_size: int = 1):
             for i, feats in enumerate(all_feat):
                 colored = []
                 for features in feats:
-                    color = get_pca_map(features, images.shape[-2:], interpolation='bilinear')
+                    color = get_pca_map(features, images.shape[-2:], interpolation=args.interpolation)
                     colored.append(color)
 
                 orig = cv2.cvtColor(images[i].permute(1, 2, 0).cpu().numpy(), cv2.COLOR_RGB2BGR)
@@ -353,75 +350,6 @@ def get_scale_map(
     scalar_map = torch.cat([scalar_map] * 3, dim=-1)
     scalar_map = scalar_map.cpu().numpy().squeeze(0)
     return scalar_map
-
-
-def get_similarity_map(features: torch.Tensor, img_size=(224, 224)):
-    """
-    compute the similarity map of the central patch to the rest of the image
-    """
-    assert len(features.shape) == 4, "features should be (1, C, H, W)"
-    H, W, C = features.shape[1:]
-    center_patch_feature = features[0, H // 2, W // 2, :]
-    center_patch_feature_normalized = center_patch_feature / center_patch_feature.norm()
-    center_patch_feature_normalized = center_patch_feature_normalized.unsqueeze(1)
-    # Reshape and normalize the entire feature tensor
-    features_flat = features.view(-1, C)
-    features_normalized = features_flat / features_flat.norm(dim=1, keepdim=True)
-
-    similarity_map_flat = features_normalized @ center_patch_feature_normalized
-    # Reshape the flat similarity map back to the spatial dimensions (H, W)
-    similarity_map = similarity_map_flat.view(H, W)
-
-    # Normalize the similarity map to be in the range [0, 1] for visualization
-    similarity_map = (similarity_map - similarity_map.min()) / (
-        similarity_map.max() - similarity_map.min()
-    )
-    # we don't want the center patch to be the most similar
-    similarity_map[H // 2, W // 2] = -1.0
-    similarity_map = (
-        F.interpolate(
-            similarity_map.unsqueeze(0).unsqueeze(0),
-            size=img_size,
-            mode="bilinear",
-        )
-        .squeeze(0)
-        .squeeze(0)
-    )
-
-    similarity_map_np = similarity_map.cpu().numpy()
-    negative_mask = similarity_map_np < 0
-
-    colormap = plt.get_cmap("turbo")
-
-    # Apply the colormap directly to the normalized similarity map and multiply by 255 to get RGB values
-    similarity_map_rgb = colormap(similarity_map_np)[..., :3]
-    similarity_map_rgb[negative_mask] = [1.0, 0.0, 0.0]
-    return similarity_map_rgb
-
-
-def get_cluster_map(
-    feature_map: torch.Tensor,
-    img_size,
-    num_clusters=10,
-) -> torch.Tensor:
-    kmeans = KMeans(n_clusters=num_clusters, distance=CosineSimilarity, verbose=False)
-    if feature_map.shape[0] != 1:
-        # make it (1, h, w, C)
-        feature_map = feature_map[None]
-    labels = kmeans.fit_predict(
-        feature_map.reshape(1, -1, feature_map.shape[-1])
-    ).float()
-    labels = (
-        F.interpolate(
-            labels.reshape(1, *feature_map.shape[:-1]), size=img_size, mode="nearest"
-        )
-        .squeeze()
-        .cpu()
-        .numpy()
-    ).astype(int)
-    cmap = plt.get_cmap("rainbow", num_clusters)
-    cluster_map = cmap(labels)[..., :3]
-    return cluster_map.reshape(img_size[0], img_size[1], 3)
 
 
 def create_image_grid_with_annotations(images, annotations, font=cv2.FONT_HERSHEY_SIMPLEX, font_scale=1, font_color=(255, 255, 255), thickness=2):

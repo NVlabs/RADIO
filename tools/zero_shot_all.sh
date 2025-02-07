@@ -70,8 +70,9 @@ for res in "${RESOLUTIONS[@]}"; do
     trun examples/zero_shot_imagenet.py --model-version "$CHK" --resolution "$res" --csv-out "$CSV" | grep "Top 1"
 done
 
-echo "Resolution: ${RESOLUTIONS[-1]} ${RESOLUTIONS[-1]} - VitDet: 16"
-# trun examples/zero_shot_imagenet.py --model-version "$CHK" --resolution ${RESOLUTIONS[-1]} ${RESOLUTIONS[-1]} --vitdet-window-size 16 --csv-out "$CSV" | grep "Top 1"
+vdt_res=$((1024 * PATCH_SIZE / 16))
+echo "Resolution: $vdt_res $vdt_res - VitDet: 16"
+trun examples/zero_shot_imagenet.py --model-version "$CHK" --resolution $vdt_res $vdt_res --vitdet-window-size 16 --csv-out "$CSV" | grep "Top 1"
 
 P16_KNN_RESOLUTIONS=(512)
 KNN_RESOLUTIONS=()
@@ -84,5 +85,5 @@ echo "KNN Resolutions: ${KNN_RESOLUTIONS[@]}"
 
 for res in "${KNN_RESOLUTIONS[@]}"; do
     echo "KNN Resolution: $res"
-    trun examples/knn_classification.py --model-version "$CHK" --resolution 512 --dataset imagenet-1k | grep "Accuracy"
+    trun examples/knn_classification.py --model-version "$CHK" --resolution $res $res --dataset imagenet-1k | grep "Accuracy"
 done
