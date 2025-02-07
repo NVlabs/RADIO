@@ -19,6 +19,7 @@ from radio.feature_normalizer import IntermediateFeatureNormalizerBase, NullInte
 from .extra_models import DinoWrapper
 from .vit_patch_generator import ViTPatchGenerator
 from .forward_intermediates import forward_intermediates
+from .dual_hybrid_vit import HybridModel
 
 
 def _forward_cpe(self: VisionTransformer, x: torch.Tensor) -> torch.Tensor:
@@ -163,5 +164,7 @@ def enable_cpe(model: nn.Module,
         _enable_cpe_for_timm_vit(model, *args, **kwargs)
     elif isinstance(model, DinoWrapper):
         _enable_cpe_for_dv2_reg_vit(model, *args, **kwargs)
+    elif isinstance(model, HybridModel):
+        _enable_cpe_for_timm_vit(model.vit, *args, **kwargs)
     else:
         raise ValueError(f'CPE not supported for this model type: {type(model)}')

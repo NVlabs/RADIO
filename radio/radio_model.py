@@ -18,6 +18,7 @@ from .adaptor_base import AdaptorBase, RadioOutput, AdaptorInput
 from . import eradio_model
 from .enable_spectral_reparam import configure_spectral_reparam_from_args
 from .feature_normalizer import FeatureNormalizer, IntermediateFeatureNormalizer
+from . import dual_hybrid_vit
 
 
 class Resolution(NamedTuple):

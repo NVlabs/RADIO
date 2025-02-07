@@ -14,10 +14,10 @@ export PYTHONPATH=.:examples
 # DFN CLIP:     open_clip,ViT-H-14-378-quickgelu,dfn5b
 # DINOv2-g-reg: dinov2_vitg14_reg
 
-exp="xpos"
+exp="hybrid"
 fspath="/lustre/fsw/portfolios/llmservice/users/mranzinger/output/evfm/$exp"
 resolutions=(256 512 768 1024 2048)
-adaptors=("" "clip" "paligemma-448" "sam")
+adaptors=("" "clip" "siglip" "paligemma-448" "paligemma-224" "sam")
 for adaptor in "${adaptors[@]}";
 do
     AD_FLAG=""
@@ -32,7 +32,7 @@ do
     JOINED=()
     for modname in `ls "$fspath"`;
     do
-        chk="${fspath}/${modname}/checkpoints/last_release_half.pth.tar"
+        chk="${fspath}/${modname}/checkpoints"
 
         OUTDIRS=("$ROOT/$exp/${modname}/512min${AD_SUFF}/orig")
         for res in "${resolutions[@]}";
