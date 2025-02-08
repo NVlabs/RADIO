@@ -70,6 +70,10 @@ class RADIO(BaseModule):
                 # Standard ViT case.
                 patch_height, patch_width = self.base_model.model.patch_embed.patch_size
             features = features.reshape(B, math.ceil(H/patch_height), math.ceil(W/patch_width),  C).permute(0, 3, 1, 2).contiguous()
+        else:
+            B, _, C = features.shape
+            patch_height = patch_width = 16
+            features = features.reshape(B, math.ceil(H/patch_height), math.ceil(W/patch_width),  C).permute(0, 3, 1, 2).contiguous()
 
         # IMPORTANT: prevent gradients from flowing back towards the backbone.
         features = features.detach()
