@@ -20,9 +20,17 @@ class GenericAdaptor(AdaptorBase):
         super().__init__()
 
         extra_args = dict()
-        ups = adaptor_config.get('fd_upsample_factor', None)
+        ups = None
+        ups_rank = None
+        if adaptor_config is not None:
+            ups = adaptor_config.get('fd_upsample_factor', None)
+            ups_rank = adaptor_config.get('fd_upsample_rank', None)
+        elif mlp_config is not None:
+            ups = mlp_config["feature"].get('upsample_factor', None)
+            ups_rank = mlp_config["feature"].get('upsample_rank', None)
         if ups is not None:
             extra_args['upsample_factor'] = ups
+            extra_args['upsample_rank'] = ups_rank
 
         if state is not None:
             spectral_heads = getattr(main_config, 'spectral_heads', False)

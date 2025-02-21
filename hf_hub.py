@@ -158,6 +158,8 @@ def main():
         adaptor_config["feature"]["hidden_dim"] = hidden_dim
         adaptor_config["feature"]["output_dim"] = output_dim
         adaptor_config["feature"]["num_inner"] = num_inner
+        adaptor_config["feature"]["upsample_factor"] = tconf.get("fd_upsample_factor", 1)
+        adaptor_config["feature"]["upsample_rank"] = tconf.get("fd_upsample_rank", None)
 
         adaptor_configs[adaptor_name] = adaptor_config
 

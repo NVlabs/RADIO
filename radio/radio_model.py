@@ -70,7 +70,7 @@ class RADIOModel(nn.Module):
         patch_gen = getattr(self.model, "patch_generator", None)
         if patch_gen is not None:
             return patch_gen.num_skip
-        elif self.model.global_pool == 'avg':
+        elif getattr(self.model, 'global_pool', None) == 'avg':
             return 0
         return 1
 
@@ -82,7 +82,7 @@ class RADIOModel(nn.Module):
         patch_gen = getattr(self.model, 'patch_generator', None)
         if patch_gen is not None:
             return patch_gen.num_cls_tokens
-        elif self.model.global_pool == 'avg':
+        elif getattr(self.model, 'global_pool', None) == 'avg':
             return 0
         return 1
 
@@ -219,7 +219,10 @@ class RADIOModel(nn.Module):
             ret = dict(backbone=ret)
             for name, adaptor in self.adaptors.items():
                 if all_summary.ndim == 3:
-                    summary = all_summary[:, adaptor.head_idx]
+                    if all_summary.shape[1] == 1:
+                        summary = all_summary[:, 0]
+                    else:
+                        summary = all_summary[:, adaptor.head_idx]
                 else:
                     summary = all_summary
                 ada_input = AdaptorInput(images=x, summary=summary.float(), features=all_feat, feature_fmt=feature_fmt, patch_size=self.patch_size)

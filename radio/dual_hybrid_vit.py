@@ -71,6 +71,7 @@ class AttnDownsample(nn.Module):
         self.window_size = window_size
         self.num_heads = num_heads
         self.head_dim = dim // num_heads
+        self.scale = self.head_dim ** -0.5
 
     def forward(self, x: torch.Tensor, twod_shape: Tuple[int, int]) -> torch.Tensor:
         ntok = twod_shape[0] * twod_shape[1]
@@ -90,7 +91,11 @@ class AttnDownsample(nn.Module):
 
         k, v = self.kv(x_spat).reshape(B, N, 2, self.num_heads, self.head_dim).permute(2, 0, 3, 1, 4)
 
-        x = F.scaled_dot_product_attention(self.q.expand(B, -1, -1, -1), k, v)
+        q = (self.q * self.scale).expand(B, -1, -1, -1)
+        attn = q @ k.transpose(-2, -1)
+        attn = F.softmax(attn, dim=-1)
+        x = attn @ v
+
         x = x.transpose(1, 2).reshape(B, C)
         x = self.proj(x)
 
