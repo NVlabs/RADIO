@@ -53,6 +53,8 @@ class MLP2(nn.Module):
                  num_inner: int = 0,
                  pre_norm: bool = False, device: torch.device = None,
                  upsample_factor: int = 1,
+                 upsample_rank: int = None,
+                 from_config: bool = False,
                  **kwargs):
         super().__init__()
 
@@ -149,7 +151,7 @@ def get_mlp_info_from_state(version: str, state: Dict[str, torch.Tensor], prefix
 
 
 def create_mlp_from_config(version: str, input_dim: int, hidden_dim: int, output_dim: int, num_inner: int, **kwargs):
-    ret: nn.Module = MLP_FACTORY[version](input_dim, hidden_dim, output_dim, num_inner, **kwargs)
+    ret: nn.Module = MLP_FACTORY[version](input_dim, hidden_dim, output_dim, num_inner, from_config=True, **kwargs)
 
     return ret
 
