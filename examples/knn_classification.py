@@ -46,7 +46,7 @@ def main(rank: int = 0, world_size: int = 1):
                         ' If two, the image is center cropped.'
                         ' If not specified, center cropped 378px is used.'
     )
-    parser.add_argument('-d', '--dataset', default='food101',
+    parser.add_argument('-d', '--dataset', default='imagenet-1k',
                         help='The name of the dataset to classify'
     )
     parser.add_argument('--eval-dataset', default=None, type=str,
