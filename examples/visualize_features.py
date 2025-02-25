@@ -51,7 +51,7 @@ def parse_int_list(string):
         raise argparse.ArgumentTypeError(f"{string} is not a valid list of integers")
 
 
-@torch.inference_mode()
+@torch.no_grad()
 def main(rank: int = 0, world_size: int = 1):
     '''
     Computes the RankMe (http://arxiv.org/abs/2210.02885) and LiDAR (http://arxiv.org/abs/2312.04000)

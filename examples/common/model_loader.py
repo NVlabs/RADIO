@@ -1,8 +1,9 @@
 from dataclasses import dataclass
 import os
 from types import MethodType
-from typing import Optional, Tuple
+from typing import List, Optional, Tuple
 
+from einops import rearrange
 import torch
 from torch import nn
 from torch.nn import functional as F
@@ -60,11 +61,12 @@ class CLIPWrapper(nn.Module):
     def __init__(self, clip_model: nn.Module, tokenizer, adaptor_name: str, clip_mode: bool = False):
         super().__init__()
         self.inner = clip_model
-        clip_model.visual.output_tokens = True
+        if hasattr(clip_model, 'visual'):
+            clip_model.visual.output_tokens = True
         self.tokenizer = tokenizer
         self.adaptor_name = adaptor_name
 
-        if not clip_mode and hasattr(clip_model.visual, 'proj'):
+        if not clip_mode and hasattr(clip_model, 'visual') and hasattr(clip_model.visual, 'proj'):
             visual = clip_model.visual
             proj = visual.proj
             I = torch.eye(proj.shape[0], dtype=proj.dtype, device=proj.device)
@@ -106,7 +108,7 @@ class CLIPWrapper(nn.Module):
 
         return token
 
-    def encode_text(self, text, normalize: bool = False):
+    def encode_text(self, text, normalize: bool = False, **kwargs):
         try:
             return self.inner.encode_text(text, normalize=normalize)
         except TypeError:
@@ -129,6 +131,62 @@ class SigLIPWrapper(CLIPWrapper):
         features = self.inner.visual.trunk.forward_features(*args, **kwargs)
         token = self.inner.visual.trunk.attn_pool(features)
         return self._wrap_output(token, features)
+
+
+class SigLIP2Wrapper(CLIPWrapper):
+    def __init__(self, clip_model, tokenizer, proc, adaptor_name, clip_mode = False, patch_size: int = 16, is_dynamic: bool = True):
+        super().__init__(clip_model, tokenizer, adaptor_name, clip_mode)
+        self._patch_size = patch_size
+        self._proc = proc
+        self._is_dynamic = is_dynamic
+
+        self.register_buffer('mask', torch.ones(1, 1, dtype=torch.int32))
+
+    @property
+    def patch_size(self):
+        return self._patch_size
+
+    def forward(self, x: torch.Tensor, *args, **kwargs):
+        out_h = x.shape[-2] // self._patch_size
+        out_w = x.shape[-1] // self._patch_size
+
+        extra = dict()
+
+        if self._is_dynamic:
+            pixel_values = rearrange(x, 'b c (h p1) (w p2) -> b (h w) (p1 p2 c)',
+                                     p1=self._patch_size, p2=self._patch_size,
+                                     h=out_h, w=out_w)
+            mask = self.mask.expand(*pixel_values.shape[:2])
+            shapes = torch.tensor([(out_h, out_w)] * pixel_values.shape[0], dtype=torch.int64, device=x.device)
+
+            extra = dict(attention_mask=mask, spatial_shapes=shapes)
+        else:
+            pixel_values = x
+
+        output = self.inner.vision_model(pixel_values=pixel_values, return_dict=True, **extra)
+
+        summary = output.pooler_output
+        features = output.last_hidden_state
+
+        if kwargs.get('feature_fmt', None) == 'NCHW':
+            features = rearrange(features, 'b (h w) c -> b c h w', h=out_h, w=out_w)
+
+        return self._wrap_output(summary, features)
+
+    def encode_text(self, text, raw_text: List[str], normalize: bool = False):
+        inputs = self._proc(text=raw_text, return_tensors='pt', max_length=64, padding='max_length', truncation=True).to('cuda')
+        output = self.inner.text_model(**inputs, return_dict=True)
+        token = output.pooler_output
+
+        if normalize:
+            token = F.normalize(token, dim=-1)
+
+        return token
+
+    def zero_shot_postproc(self, logits: torch.Tensor):
+        logit_scale, logit_bias = self.inner.logit_scale.to(logits.device), self.inner.logit_bias.to(logits.device)
+        logits = logits * logit_scale.exp() + logit_bias
+        return logits
 
 
 class SAMWrapper(nn.Module):
@@ -388,6 +446,35 @@ def load_model(version: str, adaptor_names: str = None, use_huggingface: bool = 
 
         model = InternViTWrapper(model, tokenizer)
         info = ModelInfo(model_class='InternViT', model_subtype=version[10:])
+    elif version.startswith('siglip2'):
+        from transformers import AutoModel, AutoProcessor, AutoTokenizer
+        from transformers.image_utils import load_image
+        version_map = {
+            'siglip2-so400m-512': ('google/siglip2-so400m-patch16-512', False),
+            'siglip2-so400m': ('google/siglip2-so400m-patch16-naflex', True),
+            'siglip2-g': ('google/siglip2-giant-opt-patch16-384', False),
+        }
+        version_map['siglip2'] = version_map['siglip2-so400m']
+
+        version, is_dynamic = version_map[version]
+
+        model = AutoModel.from_pretrained(version, trust_remote_code=True)
+        proc = AutoProcessor.from_pretrained(version, trust_remote_code=True)
+        tokenizer = AutoTokenizer.from_pretrained(version, trust_remote_code=True)
+
+        img_proc = proc.image_processor
+        preprocessor = InputConditioner(1.0,
+            norm_mean=img_proc.image_mean,
+            norm_std=img_proc.image_std,
+        )
+
+        model = SigLIP2Wrapper(model, tokenizer, proc, adaptor_names, clip_mode='clip' in adaptor_names if adaptor_names else False, is_dynamic=is_dynamic)
+        info = ModelInfo(model_class='SigLIP2', model_subtype=version)
+
+        image = load_image("https://huggingface.co/datasets/merve/coco/resolve/main/val2017/000000000285.jpg")
+        inputs = proc(images=[image], return_tensors="pt")
+
+        pass
     else:
         raise ValueError(f'Unsupported model version: {version}')
 

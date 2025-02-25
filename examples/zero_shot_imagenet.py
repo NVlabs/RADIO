@@ -28,7 +28,11 @@ from datasets import load_dataset_builder, load_dataset
 from datasets.iterable_dataset import DistributedConfig
 from datasets.distributed import split_dataset_by_node
 
-from open_clip import IMAGENET_CLASSNAMES, OPENAI_IMAGENET_TEMPLATES
+from open_clip import IMAGENET_CLASSNAMES, OPENAI_IMAGENET_TEMPLATES, SIMPLE_IMAGENET_TEMPLATES
+
+BASE_IMAGENET_TEMPLATES = (
+    lambda c: f'an image of a {c}.',
+)
 
 from common import collate, round_up, get_standard_transform, get_rank, get_world_size, rank_print, load_model
 
@@ -84,6 +88,11 @@ def main(rank: int = 0, world_size: int = 1):
                         help='Use the huggingface model')
     parser.add_argument('--csv-out', type=str, default=None,
                         help='Append the zero shot score to the specified csv')
+    parser.add_argument('--new-classifier', default=False, action='store_true',
+                        help='Recompute the classifier')
+    parser.add_argument('--templates', default='openai', choices=['openai', 'simple', 'base'],
+                        help='Which set of templates to use'
+    )
 
     args, _ = parser.parse_known_args()
 
@@ -122,8 +131,17 @@ def main(rank: int = 0, world_size: int = 1):
 
     rank_print('Building Zero Shot Classifier...')
     adaptor = model.adaptors[args.adaptor_name] if hasattr(model, 'adaptors') else model
+    if args.templates == 'openai':
+        templates = OPENAI_IMAGENET_TEMPLATES
+    elif args.templates == 'simple':
+        templates = SIMPLE_IMAGENET_TEMPLATES
+    elif args.templates == 'base':
+        templates = BASE_IMAGENET_TEMPLATES
+    else:
+        raise ValueError(f'Unknown template set: {args.templates}')
     classifier = get_clip_classifier(
         model=adaptor, tokenizer=adaptor.tokenizer, model_key=args.model_version, adaptor_key=args.adaptor_name, device=device,
+        recompute=args.new_classifier, templates=templates,
     ).float()
     rank_print('Done')
 
@@ -133,6 +151,7 @@ def main(rank: int = 0, world_size: int = 1):
         for k in (1, 5)
     }
     num_processed = 0
+    postproc = getattr(model, 'zero_shot_postproc', lambda x: x)
     with torch.inference_mode(), tqdm(total=num_examples, disable=rank > 0) as t:
         for batches in loader:
             for images, targets in batches:
@@ -145,6 +164,7 @@ def main(rank: int = 0, world_size: int = 1):
                     summary = F.normalize(summary, dim=-1)
 
                     logits = summary.to(classifier.dtype) @ classifier
+                    logits = postproc(logits)
 
                     accs = accuracy(logits, targets, topk=topks.keys())
                     for k, acc in zip(topks.keys(), accs):
@@ -194,7 +214,8 @@ def get_clip_classifier(model, tokenizer,
                         dist_group = None,
                         normalize_intermediate: bool = True,
                         templates: List[str] = OPENAI_IMAGENET_TEMPLATES,
-                        classnames: List[str] = IMAGENET_CLASSNAMES):
+                        classnames: List[str] = IMAGENET_CLASSNAMES,
+                        recompute: bool = False):
     """
     Build zero-shot classifier weights.
 
@@ -221,7 +242,7 @@ def get_clip_classifier(model, tokenizer,
     os.makedirs(cache_dir, exist_ok=True)
 
     cache_file = os.path.join(cache_dir, f'{cache_hash}.pt')
-    if os.path.exists(cache_file):
+    if os.path.exists(cache_file) and not recompute:
         cache = torch.load(cache_file, map_location=device)
         return cache
 
@@ -251,7 +272,7 @@ def get_clip_classifier(model, tokenizer,
     for i in tqdm(range(0, len(texts), batch_size), desc="batch", disable=rank > 0):
         curr_texts = texts[i : i + batch_size]
         tokens = tokenizer(curr_texts).to(device)
-        embeddings = model.encode_text(tokens, normalize=normalize_intermediate)
+        embeddings = model.encode_text(tokens, normalize=normalize_intermediate, raw_text=curr_texts)
         all_embeddings.append(embeddings)
 
     all_embeddings = torch.cat(all_embeddings, dim=0)
