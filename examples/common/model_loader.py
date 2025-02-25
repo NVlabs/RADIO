@@ -10,6 +10,7 @@ from torch.nn import functional as F
 
 from timm.data import IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD, OPENAI_CLIP_MEAN, OPENAI_CLIP_STD
 
+from common.utils import rank_gate
 from radio.adaptor_base import RadioOutput
 from radio.input_conditioner import InputConditioner
 
@@ -327,6 +328,9 @@ class ModelInfo:
     checkpoint: Optional[dict] = None
 
 
+# Because many of these load functions might download a model, `rank_gate` will first allow rank 0 to execute (thus downloading when applicable),
+# and once it completes, it allows all other ranks to execute, using the now cached weights.
+@rank_gate
 def load_model(version: str, adaptor_names: str = None, use_huggingface: bool = False, use_local_lib: bool = True,
                device: torch.device = None, return_spatial_features: bool = True, force_reload: bool = False,
                torchhub_repo="NVlabs/RADIO", **kwargs):

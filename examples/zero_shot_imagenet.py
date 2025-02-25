@@ -8,6 +8,7 @@
 import argparse
 from collections import defaultdict
 from hashlib import sha256
+import inspect
 import math
 import os
 from PIL import Image
@@ -268,11 +269,17 @@ def get_clip_classifier(model, tokenizer,
 
     all_embeddings = []
 
+    has_raw_text_arg = 'raw_text' in inspect.signature(model.encode_text).parameters
+
     batch_size = 1024
     for i in tqdm(range(0, len(texts), batch_size), desc="batch", disable=rank > 0):
         curr_texts = texts[i : i + batch_size]
         tokens = tokenizer(curr_texts).to(device)
-        embeddings = model.encode_text(tokens, normalize=normalize_intermediate, raw_text=curr_texts)
+        text_args = dict()
+        if has_raw_text_arg:
+            text_args['raw_text'] = curr_texts
+
+        embeddings = model.encode_text(tokens, normalize=normalize_intermediate, **text_args)
         all_embeddings.append(embeddings)
 
     all_embeddings = torch.cat(all_embeddings, dim=0)
