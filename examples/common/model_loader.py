@@ -470,11 +470,6 @@ def load_model(version: str, adaptor_names: str = None, use_huggingface: bool = 
 
         model = SigLIP2Wrapper(model, tokenizer, proc, adaptor_names, clip_mode='clip' in adaptor_names if adaptor_names else False, is_dynamic=is_dynamic)
         info = ModelInfo(model_class='SigLIP2', model_subtype=version)
-
-        image = load_image("https://huggingface.co/datasets/merve/coco/resolve/main/val2017/000000000285.jpg")
-        inputs = proc(images=[image], return_tensors="pt")
-
-        pass
     else:
         raise ValueError(f'Unsupported model version: {version}')
 
