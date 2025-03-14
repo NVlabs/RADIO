@@ -1,19 +1,23 @@
 [![Star on GitHub](https://img.shields.io/github/stars/NVlabs/RADIO.svg?style=social)](https://github.com/NVlabs/RADIO/stargazers)
 [![License](https://img.shields.io/badge/license-NC-blue.svg)](LICENSE)
-[![Paper](https://img.shields.io/badge/RADIO_AMP-arXiv.2412.07679-green.svg)](https://arxiv.org/abs/2412.07679)
+[![Paper](https://img.shields.io/badge/FeatSharp-arXiv.2502.16025-purple.svg)](https://arxiv.org/abs/2412.07679)
+[![Paper](https://img.shields.io/badge/RADIOv2.5-arXiv.2412.07679-green.svg)](https://arxiv.org/abs/2412.07679)
 [![Paper](https://img.shields.io/badge/PHI_Standardization-arXiv.2410.01680-orange.svg)](https://arxiv.org/abs/2410.01680)
 [![Paper](https://img.shields.io/badge/AM_RADIO-arXiv.2312.06709-blue.svg)](https://arxiv.org/abs/2312.06709)
 [![Paper](https://img.shields.io/badge/AM_RADIO-CVPR.2024-blue.svg)](https://openaccess.thecvf.com/content/CVPR2024/papers/Ranzinger_AM-RADIO_Agglomerative_Vision_Foundation_Model_Reduce_All_Domains_Into_One_CVPR_2024_paper.pdf)
 
-# \[CVPR 2024\] AM-RADIO: Agglomerative Vision Foundation Model - Reduce All Domains Into One
+# \[CVPR 2024, 2025\] AM-RADIO: Agglomerative Vision Foundation Model - Reduce All Domains Into One
 
 <!-- <div align="left"> -->
 <img src="assets/radio.png" width="256" align="right">
 <!-- </div> -->
 
-Official PyTorch implementation of \[CVPR 2024\] [**AM-RADIO: Agglomerative Vision Foundation Model - Reduce All Domains Into One**](https://arxiv.org/abs/2312.06709).
+Official PyTorch implementation of \[CVPR 2025\] [**RADIOv2.5: Improved Baselines for Agglomerative Vision Foundation Models**](https://arxiv.org/abs/2412.07679)
 
-Check out our latest preprints: [**PHI-S: Distribution Balancing for Label-Free Multi-Teacher Distillation**](https://arxiv.org/abs/2410.01680) and [**RADIO Amplified: Improved Baselines for Agglomerative Vision Foundation Models**](https://arxiv.org/abs/2412.07679).
+Official PyTorch implementation of \[CVPR 2024\] [**AM-RADIO: Agglomerative Vision Foundation Model - Reduce All Domains Into One**](https://arxiv.org/abs/2312.06709)
+
+
+Check out our preprints: [**PHI-S: Distribution Balancing for Label-Free Multi-Teacher Distillation**](https://arxiv.org/abs/2410.01680) and [**FeatSharp: Your Vision Model Features, Sharper**](https://www.arxiv.org/abs/2502.16025).
 
 
 Mike Ranzinger, Greg Heinrich, [Jan Kautz](https://jankautz.com/), [Pavlo Molchanov](https://www.pmolchanov.com/).
@@ -22,7 +26,7 @@ Mike Ranzinger, Greg Heinrich, [Jan Kautz](https://jankautz.com/), [Pavlo Molcha
 
 For business inquiries, please visit our website and submit the form: [NVIDIA Research Licensing](https://www.nvidia.com/en-us/research/inquiries/)
 
-\[[RADIO-Amplified](https://arxiv.org/abs/2412.07679)\]\[[PHI-S](https://arxiv.org/abs/2410.01680)\]\[[AM-RADIO](https://arxiv.org/abs/2312.06709)\]\[[BibTex](#citing-radio)\]
+\[[RADIOv2.5](https://arxiv.org/abs/2412.07679)\]\[[FeatSharp](https://www.arxiv.org/abs/2502.16025)\]\[[PHI-S](https://arxiv.org/abs/2410.01680)\]\[[AM-RADIO](https://arxiv.org/abs/2312.06709)\]\[[BibTex](#citing-radio)\]
 
 <br clear="left"/>
 
@@ -31,6 +35,7 @@ For business inquiries, please visit our website and submit the form: [NVIDIA Re
 
 ## News/Release
 
+- [2.26.2025] RADIOv2.5 paper has been accepted to **CVPR 2025**. See you in Nashville.
 - [12.18.2024] We release C-RADIO, a ViT-H/16 model which can be used for commercial products, under the [NVIDIA Open Model License Agreement](https://developer.download.nvidia.com/licenses/nvidia-open-model-license-agreement-june-2024.pdf) license!
 - [12.11.2024] We release RADIOv2.5 ViT-g/14, our biggest model yet!
 - [12.10.2024] We release \[[RADIO-Amplified](https://arxiv.org/abs/2412.07679)\] to ArXiv with details on our method to address the mode-switching issue (previously described in this [tech report](./RADIOv2.5_tech_report.md)) and our efficient VLM integration method.
@@ -435,19 +440,34 @@ _Coming Soon_
 
 If you find this repository useful, please consider giving a star and citation:
 
-### RADIO Amplified: Improved Baselines for Agglomerative Vision Foundation Models
+### RADIOv2.5: Improved Baselines for Agglomerative Vision Foundation Models
 
 #### ArXiv Reference:
 
 ```bibtex
-@misc{heinrich2024radioamplifiedimprovedbaselines,
-      title={RADIO Amplified: Improved Baselines for Agglomerative Vision Foundation Models},
+@misc{heinrich2025radiov25improvedbaselinesagglomerative,
+      title={RADIOv2.5: Improved Baselines for Agglomerative Vision Foundation Models},
       author={Greg Heinrich and Mike Ranzinger and Hongxu and Yin and Yao Lu and Jan Kautz and Andrew Tao and Bryan Catanzaro and Pavlo Molchanov},
       year={2024},
       eprint={2412.07679},
       archivePrefix={arXiv},
       primaryClass={cs.CV},
       url={https://arxiv.org/abs/2412.07679},
+}
+```
+
+### FeatSharp: Your Vision Model Features, Sharper
+
+#### ArXiv Reference:
+```bibtex
+@misc{ranzinger2025featsharpvisionmodelfeatures,
+      title={FeatSharp: Your Vision Model Features, Sharper}, 
+      author={Mike Ranzinger and Greg Heinrich and Pavlo Molchanov and Jan Kautz and Bryan Catanzaro and Andrew Tao},
+      year={2025},
+      eprint={2502.16025},
+      archivePrefix={arXiv},
+      primaryClass={cs.CV},
+      url={https://arxiv.org/abs/2502.16025}, 
 }
 ```
 
