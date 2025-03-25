@@ -46,7 +46,7 @@ fi
 export PYTHONPATH=.:examples
 
 # Calculate the sequence of resolutions based on the patch size
-P16_RESOLUTIONS=(224 256 432 512 768 1024)
+P16_RESOLUTIONS=(192 224 256 432 512 768 1024)
 RESOLUTIONS=()
 for res in ${P16_RESOLUTIONS[@]}; do
     new_res=$((res * PATCH_SIZE / 16))

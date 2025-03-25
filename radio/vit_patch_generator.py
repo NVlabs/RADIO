@@ -294,7 +294,8 @@ class ViTPatchLinear(nn.Linear):
         if self.bias is not None:
             self.bias.data.copy_(state_dict[f'{prefix}bias'])
 
-        chk_weight = state_dict[f'{prefix}weight']
+        weight_key, chk_weight = next((k, t) for k, t in state_dict.items() if 'weight' in k)
+
         if chk_weight.shape != self.weight.shape:
             src_patch_size = int(math.sqrt(chk_weight.shape[1] // 3))
 
@@ -303,4 +304,10 @@ class ViTPatchLinear(nn.Linear):
             chk_weight = rearrange(chk_weight, 'b (c h w) -> b c h w', c=3, h=src_patch_size, w=src_patch_size)
             chk_weight = F.interpolate(chk_weight, size=(self.patch_size, self.patch_size), mode='bicubic', align_corners=True, antialias=False)
             chk_weight = rearrange(chk_weight, 'b c h w -> b (c h w)')
-        self.weight.data.copy_(chk_weight)
+
+        weight_key = weight_key[len(prefix):]
+
+        my_sd = self.state_dict()
+        my_weight = next(t for k, t in my_sd.items() if 'weight' in k)
+        my_weight.copy_(chk_weight)
+        pass
