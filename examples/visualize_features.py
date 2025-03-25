@@ -109,6 +109,7 @@ def main(rank: int = 0, world_size: int = 1):
                         help='How to aggregate intermediate layers',
                         choices=['sparse', 'dense'])
     parser.add_argument('--interpolation', default='bilinear', type=str, help='Interpolation mode')
+    parser.add_argument('--skip', default=0, type=int, help='Skip the first N components')
 
     args, _ = parser.parse_known_args()
 
@@ -225,7 +226,7 @@ def main(rank: int = 0, world_size: int = 1):
             for i, feats in enumerate(all_feat):
                 colored = []
                 for features in feats:
-                    color = get_pca_map(features, images.shape[-2:], interpolation=args.interpolation)
+                    color = get_pca_map(features, images.shape[-2:], interpolation=args.interpolation, skip_components=args.skip)
                     colored.append(color)
 
                 orig = cv2.cvtColor(images[i].permute(1, 2, 0).cpu().numpy(), cv2.COLOR_RGB2BGR)
@@ -259,11 +260,12 @@ def main(rank: int = 0, world_size: int = 1):
                 ctr += 1
 
 
-def get_robust_pca(features: torch.Tensor, m: float = 2, remove_first_component=False):
+def get_robust_pca(features: torch.Tensor, m: float = 2, remove_first_component=False, skip: int = 0):
     # features: (N, C)
     # m: a hyperparam controlling how many std dev outside for outliers
     assert len(features.shape) == 2, "features should be (N, C)"
-    reduction_mat = torch.pca_lowrank(features, q=3, niter=20)[2]
+    reduction_mat = torch.pca_lowrank(features, q=3 + skip, niter=20)[2]
+    reduction_mat = reduction_mat[:, skip:]
     colors = features @ reduction_mat
     if remove_first_component:
         colors_min = colors.min(dim=0).values
@@ -299,6 +301,7 @@ def get_pca_map(
     interpolation="bicubic",
     return_pca_stats=False,
     pca_stats=None,
+    skip_components: int = 0,
 ):
     """
     feature_map: (1, h, w, C) is the feature map of a single image.
@@ -308,7 +311,7 @@ def get_pca_map(
         feature_map = feature_map[None]
     if pca_stats is None:
         reduct_mat, color_min, color_max = get_robust_pca(
-            feature_map.reshape(-1, feature_map.shape[-1])
+            feature_map.reshape(-1, feature_map.shape[-1]), skip=skip_components,
         )
     else:
         reduct_mat, color_min, color_max = pca_stats

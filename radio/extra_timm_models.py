@@ -6,7 +6,11 @@
 # distribution of this software and related documentation without an express
 # license agreement from NVIDIA CORPORATION is strictly prohibited.
 
+import math
+
+import torch
 from torch import nn
+from torch.nn import functional as F
 
 from timm.models import register_model
 from timm.models.vision_transformer import (
@@ -76,11 +80,13 @@ def vit_huge_patch16_224_mlpnorm(pretrained=False, **kwargs) -> VisionTransforme
 
 
 @register_model
-def vit_giant_patch16_224(pretrained=False, **kwargs) -> VisionTransformer:
+def vit_giant_patch16_224(pretrained=False, scaled_ln: bool = False, **kwargs) -> VisionTransformer:
     """ ViT-giant model (ViT-g/16) from original paper (https://arxiv.org/abs/2010.11929).
     """
     model_args = dict(patch_size=16, embed_dim=1536, depth=40, num_heads=24)
     model = _create_vision_transformer('vit_giant_patch16_224', pretrained=False, **dict(model_args, **kwargs))
+    if scaled_ln:
+        _apply_scaled_ln(model)
     return model
 
 
@@ -112,3 +118,60 @@ def _patch_layer_scale(model: VisionTransformer):
             if isinstance(mod.ls2, TIMMLayerScale):
                 mod.ls2 = replace_ls(mod.ls2)
     pass
+
+
+class ScaledLayerNorm(nn.LayerNorm):
+    '''
+    https://arxiv.org/pdf/2502.05795v1
+    '''
+    def __init__(self, ln_base: nn.LayerNorm, depth: int = 0):
+        super().__init__(ln_base.normalized_shape, eps=ln_base.eps, elementwise_affine=ln_base.elementwise_affine)
+        self.load_state_dict(ln_base.state_dict())
+        self.register_buffer('ln_scale', torch.tensor(1.0 / math.sqrt(depth)), persistent=False)
+
+    def forward(self, x):
+        y = super().forward(x)
+        y = y * self.ln_scale
+        return y
+
+
+class DyT(nn.Module):
+    def __init__(self, C: int, init_alpha: float):
+        super().__init__()
+        self.alpha = nn.Parameter(torch.full((1,), init_alpha))
+        self.gamma = nn.Parameter(torch.ones(C))
+        self.beta = nn.Parameter(torch.zeros(C))
+
+    def forward(self, x: torch.Tensor):
+        x = F.tanh(self.alpha * x)
+        return self.gamma * x + self.beta
+
+@register_model
+def vit_large_dyt_patch16_224(pretrained: bool = False, **kwargs) -> VisionTransformer:
+    """ ViT-Large model (ViT-L/16) from original paper (https://arxiv.org/abs/2010.11929).
+    ImageNet-1k weights fine-tuned from in21k @ 224x224, source https://github.com/google-research/vision_transformer.
+    """
+    model_args = dict(patch_size=16, embed_dim=1024, depth=24, num_heads=16)
+    model = _create_vision_transformer('vit_large_dyt_patch16_224', pretrained=pretrained, **dict(model_args, **kwargs))
+
+    def _replace_ln_with_dyt(ln: nn.LayerNorm, depth: int):
+        return DyT(ln.normalized_shape[0], init_alpha=0.9)
+    _replace_ln(model, _replace_ln_with_dyt)
+
+    return model
+
+
+def _apply_scaled_ln(model: VisionTransformer):
+    warnings.warn('Post-LayerNorm scaling activated!')
+
+    _replace_ln(model, lambda ln, depth: ScaledLayerNorm(ln, depth=depth))
+
+def _replace_ln(model: VisionTransformer, fn):
+    def _inner_replace_ln(block: Block, depth: int, key: str):
+        prev = getattr(block, key)
+        if isinstance(prev, nn.LayerNorm):
+            setattr(block, key, fn(prev, depth=depth))
+
+    for i, block in enumerate(model.blocks):
+        _inner_replace_ln(block, i + 1, 'norm1')
+        _inner_replace_ln(block, i + 1, 'norm2')
