@@ -155,7 +155,7 @@ def enable_spectral_reparam(model: Union[nn.Module, List[nn.Module]],
             return True
 
         p_name = f'{name}.parametrizations'
-        is_prm = any(k for k in state_dict_guidance if k.startswith(p_name))
+        is_prm = any(k for k in state_dict_guidance if k.startswith(p_name) and k.endswith('_sn_version'))
         return is_prm
 
     def parametrize_linear(linear: nn.Linear):

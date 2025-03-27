@@ -41,6 +41,10 @@ do
             chk="${modname}"
         fi
 
+        if [[ "$adaptor" != "" ]] && [[ ! -d "${chk}" ]]; then
+            continue
+        fi
+
         OUTDIRS=("$ROOT/$exp/${modname}/512min${AD_SUFF}/orig")
         for res in "${resolutions[@]}";
         do

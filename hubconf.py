@@ -19,6 +19,7 @@ from timm.models import clean_state_dict
 
 from radio.adaptor_registry import adaptor_registry
 from radio.common import DEFAULT_VERSION, RadioResource, RESOURCE_MAP
+from radio.enable_damp import configure_damp_from_args
 from radio.enable_spectral_reparam import disable_spectral_reparam, configure_spectral_reparam_from_args
 from radio.feature_normalizer import FeatureNormalizer, IntermediateFeatureNormalizer
 from radio.radio_model import RADIOModel, create_model_from_args
@@ -59,6 +60,9 @@ def radio_model(
 
     if args.spectral_reparam:
         configure_spectral_reparam_from_args(mod, args, state_dict_guidance=mod_state_dict)
+
+    if getattr(args, 'damp', None):
+        configure_damp_from_args(mod, args)
 
     state_dict = clean_state_dict(state_dict)
 
