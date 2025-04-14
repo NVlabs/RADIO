@@ -202,13 +202,13 @@ def main(rank: int = 0, world_size: int = 1):
 
         if rank == 0 and k == 1 and args.csv_out:
             with open(args.csv_out, 'a') as fd:
-                # fd.write(f'{" ".join(str(r) for r in args.resolution)},{acc:.4f}\n')
-                drop_span = args.drop_span
-                if not drop_span:
-                    drop_span = ['baseline', '']
-                elif len(drop_span) == 1:
-                    drop_span = [drop_span[0], drop_span[0] + 1]
-                fd.write(f'{drop_span[0]},{drop_span[1]},{acc:.4f}\n')
+                fd.write(f'{" ".join(str(r) for r in args.resolution)},{acc:.4f}\n')
+                # drop_span = args.drop_span
+                # if not drop_span:
+                #     drop_span = ['baseline', '']
+                # elif len(drop_span) == 1:
+                #     drop_span = [drop_span[0], drop_span[0] + 1]
+                # fd.write(f'{drop_span[0]},{drop_span[1]},{acc:.4f}\n')
 
 
 def accuracy(output, target, topk=(1,)):
