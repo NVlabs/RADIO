@@ -86,6 +86,14 @@ def main():
     checkpoint = torch.load(args.checkpoint_path, map_location="cpu")
     model_args = checkpoint["args"]
 
+    # Remove invalid identifier.
+    if hasattr(model_args, "enable_cudnn_attention"):
+        print(f'Removing attribute: enable-cudnn-attention!')
+        delattr(model_args, "enable-cudnn-attention")
+    if hasattr(model_args, "device"):
+        print(f'Removing attribute: device!')
+        delattr(model_args, "device")
+
     # Extract the state dict from the checkpoint.
     if "state_dict_ema" in checkpoint:
         state_dict = checkpoint["state_dict_ema"]
@@ -163,11 +171,33 @@ def main():
 
         adaptor_configs[adaptor_name] = adaptor_config
 
+
+    feat_norm_sd = get_prefix_state_dict(state_dict, '_feature_normalizer.')
+    feature_normalizer_config = None
+    if feat_norm_sd:
+        feature_normalizer_config = {
+            "embed_dim": feat_norm_sd['mean'].shape[0]
+        }
+
+    inter_feat_norm_sd = get_prefix_state_dict(state_dict, '_intermediate_feature_normalizer.')
+    inter_feature_normalizer_config = None
+    if inter_feat_norm_sd:
+        inter_feature_normalizer_config = {
+            "num_intermediates": inter_feat_norm_sd['means'].shape[0],
+            "embed_dim": inter_feat_norm_sd['means'].shape[1],
+            "rot_per_layer": inter_feat_norm_sd['rotation'].ndim == 3,
+        }
+
+    model_vars = vars(model_args)
+    model_vars.pop('enable-cudnn-attention', None)
+
     radio_config = RADIOConfig(
-        vars(model_args),
+        model_vars,
         version=args.version,
         adaptor_names=adaptor_names,
         adaptor_configs=adaptor_configs,
+        feature_normalizer_config=feature_normalizer_config,
+        inter_feature_normalizer_config=inter_feature_normalizer_config,
     )
     radio_model = RADIOModel(radio_config)
 
@@ -196,6 +226,12 @@ def main():
         get_prefix_state_dict(state_dict, "input_conditioner.")
     )
 
+    # Restore feature normalizer.
+    if feat_norm_sd:
+        radio_model.radio_model.feature_normalizer.load_state_dict(feat_norm_sd)
+    if inter_feat_norm_sd:
+        radio_model.radio_model.inter_feature_normalizer.load_state_dict(inter_feat_norm_sd)
+
     radio_model.eval().cuda()
 
     # Sample inference with deterministic values.
@@ -217,10 +253,26 @@ def main():
         hf_summary, hf_features = v.summary, v.features
 
         print(
-            f"[{k}] Sample inference on tensor shape {x.shape} returned summary ",
+            f"[{k}] HF inference on tensor shape {x.shape} returned summary ",
             f"with shape={hf_summary.shape} and std={hf_summary.std().item():.3}, ",
             f"features with shape={hf_features.shape} and std={hf_features.std().item():.3}",
         )
+
+    intermediates = radio_model.radio_model.forward_intermediates(
+                        x,
+                        indices=[-1],
+                        return_prefix_tokens=True,
+                        norm=False,
+                        stop_early=False,
+                        output_fmt='NLC',
+                        intermediates_only=True,
+                        aggregation="sparse",
+                    )
+    print(
+        f"Intermediates inference returned ",
+        f"features with shape={intermediates[0].features.shape} and std={intermediates[0].features.std().item():.3}",
+    )
+    #assert torch.allclose(intermediates[0].features, hf_output["backbone"].features, atol=1e-4)
 
     # Infer using TorchHub model.
     print("Infer using TorchHub model...")
@@ -246,6 +298,12 @@ def main():
             torchhub_output[k].features,
         )
 
+        print(
+            f"[{k}] TorchHub inference on tensor shape {x.shape} returned summary ",
+            f"with shape={torchhub_summary.shape} and std={torchhub_summary.std().item():.3}, ",
+            f"features with shape={torchhub_features.shape} and std={torchhub_features.std().item():.3}",
+        )
+
         # Make sure the shapes are the same.
         assert (
             hf_summary.shape == torchhub_summary.shape
@@ -264,6 +322,10 @@ def main():
 
         print(f"{k} outputs matched!")
 
+
+
+    print("All outputs matched!")
+
     if args.push:
         # Push to HuggingFace Hub.
         huggingface_repo = args.hf_repo
@@ -274,7 +336,6 @@ def main():
             huggingface_repo, create_pr=True, commit_message=args.commit_message
         )
         print(f"Pushed to {commit}")
-
 
 if __name__ == "__main__":
     """Call the main entrypoiny."""
