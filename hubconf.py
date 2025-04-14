@@ -39,12 +39,12 @@ def radio_model(
         version = DEFAULT_VERSION
 
     if os.path.isfile(version):
-        chk = torch.load(version, map_location="cpu")
+        chk = torch.load(version, map_location="cpu", weights_only=False)
         resource = RadioResource(version, patch_size=None, max_resolution=None, preferred_resolution=None)
     else:
         resource = RESOURCE_MAP[version]
         chk = load_state_dict_from_url(
-            resource.url, progress=progress, map_location="cpu"
+            resource.url, progress=progress, map_location="cpu", weights_only=False,
         )
 
     if "state_dict_ema" in chk:
