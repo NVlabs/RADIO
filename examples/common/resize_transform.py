@@ -7,7 +7,21 @@ import torch
 import torchvision.transforms.v2 as transforms
 
 
-class ResizeTransform(transforms.Transform):
+class TV2Compat(transforms.Transform):
+    """
+    Older versions of torchvision.transforms.v2.Transform used these functions, but they've been renamed in
+    newer releases. This should allow either to work.
+    """
+
+    def _get_params(self, flat_inputs: List[Any]) -> Dict[str, Any]:
+        return self.make_params(flat_inputs)
+    def _transform(self, inpt: Any, params: Dict[str, Any]) -> Any:
+        return self.transform(inpt, params)
+    def _check_input(self, inpt: Any) -> None:
+        return self.check_inputs(inpt)
+
+
+class ResizeTransform(TV2Compat):
     def __init__(self, size: Iterable[int], resize_multiple: int = 1, max_dim: bool = False):
         super().__init__()
 
@@ -18,7 +32,7 @@ class ResizeTransform(transforms.Transform):
     def _get_nearest(self, value: int):
         return int(round(value / self.resize_multiple) * self.resize_multiple)
 
-    def _get_params(self, flat_inputs: List[Any]) -> Dict[str, Any]:
+    def make_params(self, flat_inputs: List[Any]) -> Dict[str, Any]:
         height, width = transforms._utils.query_size(flat_inputs)
 
         if len(self.size) == 1:
@@ -57,7 +71,7 @@ class ResizeTransform(transforms.Transform):
 
         return dict(size=size)
 
-    def _transform(self, inpt: Any, params: Dict[str, Any]) -> Any:
+    def transform(self, inpt: Any, params: Dict[str, Any]) -> Any:
         if isinstance(inpt, Image.Image):
             inpt = inpt.convert('RGB')
 
@@ -66,7 +80,7 @@ class ResizeTransform(transforms.Transform):
         return transforms.functional.resize(inpt, size=size, interpolation=transforms.InterpolationMode.BICUBIC)
 
 
-class PadToSquare(transforms.Transform):
+class PadToSquare(TV2Compat):
     def __init__(self, pad_mean = None):
         super().__init__()
         if torch.is_tensor(pad_mean):
@@ -76,7 +90,7 @@ class PadToSquare(transforms.Transform):
 
         self.pad_mean = pad_mean
 
-    def _get_params(self, flat_inputs: List[Any]) -> Dict[str, Any]:
+    def make_params(self, flat_inputs: List[Any]) -> Dict[str, Any]:
         height, width = transforms._utils.query_size(flat_inputs)
 
         max_sz = max(height, width)
@@ -91,14 +105,14 @@ class PadToSquare(transforms.Transform):
 
         return dict(size=(left, top, right, bottom))
 
-    def _transform(self, inpt: Any, params: Dict[str, Any]) -> Any:
+    def transform(self, inpt: Any, params: Dict[str, Any]) -> Any:
         size = params['size']
 
         ret = transforms.functional.pad(inpt, size, fill=self.pad_mean)
         return ret
 
 
-class PadToSize(transforms.Transform):
+class PadToSize(TV2Compat):
     def __init__(self, target_size: Union[int, Tuple[int, int]], pad_mean = None):
         super().__init__()
         self.target_size = to_2tuple(target_size)
@@ -110,7 +124,7 @@ class PadToSize(transforms.Transform):
 
         self.pad_mean = pad_mean
 
-    def _get_params(self, flat_inputs: List[Any]) -> Dict[str, Any]:
+    def make_params(self, flat_inputs: List[Any]) -> Dict[str, Any]:
         height, width = transforms._utils.query_size(flat_inputs)
 
         pad_h = self.target_size[0] - height
@@ -118,7 +132,7 @@ class PadToSize(transforms.Transform):
 
         return dict(size=(0, 0, pad_w, pad_h))
 
-    def _transform(self, inpt: Any, params: Dict[str, Any]) -> Any:
+    def transform(self, inpt: Any, params: Dict[str, Any]) -> Any:
         size = params['size']
 
         ret = transforms.functional.pad(inpt, size, fill=self.pad_mean)
