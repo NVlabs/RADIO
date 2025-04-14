@@ -35,7 +35,7 @@ BASE_IMAGENET_TEMPLATES = (
     lambda c: f'an image of a {c}.',
 )
 
-from common import collate, round_up, get_standard_transform, get_rank, get_world_size, rank_print, load_model
+from common import collate, round_up, get_standard_transform, get_rank, get_world_size, barrier, rank_print, load_model
 
 
 def main(rank: int = 0, world_size: int = 1):
@@ -89,11 +89,12 @@ def main(rank: int = 0, world_size: int = 1):
                         help='Use the huggingface model')
     parser.add_argument('--csv-out', type=str, default=None,
                         help='Append the zero shot score to the specified csv')
-    parser.add_argument('--new-classifier', default=False, action='store_true',
-                        help='Recompute the classifier')
     parser.add_argument('--templates', default='openai', choices=['openai', 'simple', 'base'],
                         help='Which set of templates to use'
     )
+
+    parser.add_argument('--drop-span', type=int, nargs='+', default=None)
+    parser.add_argument('--invalidate-cache', default=False, action='store_true')
 
     args, _ = parser.parse_known_args()
 
@@ -103,6 +104,13 @@ def main(rank: int = 0, world_size: int = 1):
                                            torchhub_repo=args.torchhub_repo, use_huggingface=args.use_huggingface)
     model.to(device=device).eval()
     rank_print('Done')
+
+    if args.drop_span:
+        drop_span = args.drop_span
+        if len(drop_span) == 1:
+            drop_span = (drop_span[0], drop_span[0] + 1)
+        for i in range(*drop_span):
+            model.blocks[i] = nn.Identity()
 
     rank_print('Loading dataset...')
     ds_builder = load_dataset_builder(args.dataset, trust_remote_code=True)
@@ -142,7 +150,7 @@ def main(rank: int = 0, world_size: int = 1):
         raise ValueError(f'Unknown template set: {args.templates}')
     classifier = get_clip_classifier(
         model=adaptor, tokenizer=adaptor.tokenizer, model_key=args.model_version, adaptor_key=args.adaptor_name, device=device,
-        recompute=args.new_classifier, templates=templates,
+        templates=templates, invalidate_cache=args.invalidate_cache,
     ).float()
     rank_print('Done')
 
@@ -195,6 +203,12 @@ def main(rank: int = 0, world_size: int = 1):
         if rank == 0 and k == 1 and args.csv_out:
             with open(args.csv_out, 'a') as fd:
                 fd.write(f'{" ".join(str(r) for r in args.resolution)},{acc:.4f}\n')
+                # drop_span = args.drop_span
+                # if not drop_span:
+                #     drop_span = ['baseline', '']
+                # elif len(drop_span) == 1:
+                #     drop_span = [drop_span[0], drop_span[0] + 1]
+                # fd.write(f'{drop_span[0]},{drop_span[1]},{acc:.4f}\n')
 
 
 def accuracy(output, target, topk=(1,)):
@@ -216,7 +230,8 @@ def get_clip_classifier(model, tokenizer,
                         normalize_intermediate: bool = True,
                         templates: List[str] = OPENAI_IMAGENET_TEMPLATES,
                         classnames: List[str] = IMAGENET_CLASSNAMES,
-                        recompute: bool = False):
+                        invalidate_cache: bool = False,
+):
     """
     Build zero-shot classifier weights.
 
@@ -243,7 +258,7 @@ def get_clip_classifier(model, tokenizer,
     os.makedirs(cache_dir, exist_ok=True)
 
     cache_file = os.path.join(cache_dir, f'{cache_hash}.pt')
-    if os.path.exists(cache_file) and not recompute:
+    if not invalidate_cache and os.path.exists(cache_file):
         cache = torch.load(cache_file, map_location=device)
         return cache
 
@@ -300,6 +315,7 @@ def get_clip_classifier(model, tokenizer,
 
     if get_rank() == 0:
         torch.save(class_embeddings, cache_file)
+    barrier()
 
     return class_embeddings
 

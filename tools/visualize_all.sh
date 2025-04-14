@@ -14,10 +14,14 @@ export PYTHONPATH=.:examples
 # DFN CLIP:     open_clip,ViT-H-14-378-quickgelu,dfn5b
 # DINOv2-g-reg: dinov2_vitg14_reg
 
-exp="hybrid"
+exp=${1:-"hybrid"}
 fspath="/lustre/fsw/portfolios/llmservice/users/mranzinger/output/evfm/$exp"
 resolutions=(256 512 768 1024 2048)
-adaptors=("" "clip" "siglip" "paligemma-448" "paligemma-224" "sam")
+adaptors=("" "siglip2-g" "clip" "siglip" "sam" "rtx-translate")
+
+modnames=($(ls "$fspath"))
+modnames+=("siglip2-so400m")
+
 for adaptor in "${adaptors[@]}";
 do
     AD_FLAG=""
@@ -30,9 +34,16 @@ do
     fi
 
     JOINED=()
-    for modname in `ls "$fspath"`;
+    for modname in "${modnames[@]}";
     do
         chk="${fspath}/${modname}/checkpoints"
+        if [[ ! -d "$chk" ]]; then
+            chk="${modname}"
+        fi
+
+        if [[ "$adaptor" != "" ]] && [[ ! -d "${chk}" ]]; then
+            continue
+        fi
 
         OUTDIRS=("$ROOT/$exp/${modname}/512min${AD_SUFF}/orig")
         for res in "${resolutions[@]}";
@@ -52,7 +63,7 @@ do
             for res in "${resolutions[@]}";
             do
                 header_txt="${header_txt};0,$col,$res"
-                col+=1
+                col=$((col + 1))
             done
 
             python tools/im_join.py --input-dirs ${OUTDIRS[@]} --output-dir "$join_path" --cols 6 --header 64 --header-text "$header_txt"
