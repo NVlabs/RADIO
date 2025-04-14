@@ -55,6 +55,20 @@ def vit_base_patch14_224(pretrained=False, **kwargs) -> VisionTransformer:
 
 
 @register_model
+def vit_base_patch16_v2_224(pretrained=False, **kwargs) -> VisionTransformer:
+    """ ViT-Base (ViT-B/16) from original paper (https://arxiv.org/abs/2010.11929).
+    ImageNet-1k weights fine-tuned from in21k @ 224x224, source https://github.com/google-research/vision_transformer.
+    """
+    model_args = dict(
+        patch_size=16, embed_dim=768, depth=12, num_heads=12, init_values=1e-5,
+        reg_tokens=4, no_embed_class=True, img_size=518 * 16 // 14
+    )
+    model = _create_vision_transformer(
+        'vit_base_patch14_reg4_dinov2', pretrained=pretrained, **dict(model_args, **kwargs))
+    return model
+
+
+@register_model
 def vit_large_patch16_v2_224(pretrained: bool = False, **kwargs) -> VisionTransformer:
     """ ViT-Large model (ViT-L/16) from original paper (https://arxiv.org/abs/2010.11929).
     ImageNet-1k weights fine-tuned from in21k @ 224x224, source https://github.com/google-research/vision_transformer.
