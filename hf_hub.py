@@ -277,7 +277,7 @@ def main():
         f"Intermediates inference returned ",
         f"features with shape={intermediates[0].features.shape} and std={intermediates[0].features.std().item():.3}",
     )
-    #assert torch.allclose(intermediates[0].features, hf_output["backbone"].features, atol=1e-4)
+    assert torch.allclose(intermediates[0].features, hf_output["backbone"].features, atol=1e-4)
 
     # Infer using TorchHub model.
     print("Infer using TorchHub model...")
