@@ -83,16 +83,19 @@ def main():
     args = parser.parse_args()
 
     # Load the checkpoint and create the model.
-    checkpoint = torch.load(args.checkpoint_path, map_location="cpu")
+    checkpoint = torch.load(args.checkpoint_path, map_location="cpu", weights_only=False)
     model_args = checkpoint["args"]
 
-    # Remove invalid identifier.
-    if hasattr(model_args, "enable_cudnn_attention"):
-        print(f'Removing attribute: enable-cudnn-attention!')
-        delattr(model_args, "enable-cudnn-attention")
-    if hasattr(model_args, "device"):
-        print(f'Removing attribute: device!')
-        delattr(model_args, "device")
+    # Remove invalid identifiers.
+    invalid_identifiers = [
+        "enable-cudnn-attention",
+        "device",
+        "damp",
+    ]
+    for invalid_identifier in invalid_identifiers:
+        if hasattr(model_args, invalid_identifier):
+            print(f'Removing attribute: {invalid_identifier}!')
+            delattr(model_args, invalid_identifier)
 
     # Extract the state dict from the checkpoint.
     if "state_dict_ema" in checkpoint:
@@ -245,7 +248,8 @@ def main():
     ).cuda()
 
     # Infer using HuggingFace model.
-    hf_output = radio_model(x)
+    with torch.no_grad():
+        hf_output = radio_model(x)
     if isinstance(hf_output, tuple):
         # The model returns a single tuple if there are no adaptors.
         hf_output = dict(backbone=RadioOutput(hf_output[0], hf_output[1]))
@@ -258,16 +262,17 @@ def main():
             f"features with shape={hf_features.shape} and std={hf_features.std().item():.3}",
         )
 
-    intermediates = radio_model.radio_model.forward_intermediates(
-                        x,
-                        indices=[-1],
-                        return_prefix_tokens=True,
-                        norm=False,
-                        stop_early=False,
-                        output_fmt='NLC',
-                        intermediates_only=True,
-                        aggregation="sparse",
-                    )
+    with torch.no_grad():
+        intermediates = radio_model.radio_model.forward_intermediates(
+                            x,
+                            indices=[-1],
+                            return_prefix_tokens=True,
+                            norm=False,
+                            stop_early=False,
+                            output_fmt='NLC',
+                            intermediates_only=True,
+                            aggregation="sparse",
+                        )
     print(
         f"Intermediates inference returned ",
         f"features with shape={intermediates[0].features.shape} and std={intermediates[0].features.std().item():.3}",
@@ -280,11 +285,13 @@ def main():
         args.torchhub_repo,
         "radio_model",
         version=args.checkpoint_path,
-        force_reload=False,
+        force_reload=True,
         adaptor_names=adaptor_names,
     )
     torchhub_model.cuda().eval()
-    torchhub_output = torchhub_model(x)
+
+    with torch.no_grad():
+        torchhub_output = torchhub_model(x)
 
     if isinstance(torchhub_output, tuple):
         torchhub_output = dict(

@@ -98,9 +98,12 @@ def main():
         "radio_model",
         version=args.torchhub_version,
         adaptor_names=args.adaptor_names,
+        force_reload=True,
     )
     torchhub_model.cuda().eval()
-    torchhub_output = torchhub_model(x)
+
+    with torch.no_grad():
+        torchhub_output = torchhub_model(x)
 
     if isinstance(torchhub_output, tuple):
         torchhub_output = dict(
@@ -150,13 +153,14 @@ def main():
     print("All outputs matched!")
 
     # Infer a sample image.
-    image_processor = CLIPImageProcessor.from_pretrained(args.hf_repo, revision=args.hf_revision)
+    image_processor = CLIPImageProcessor.from_pretrained(args.hf_repo, revision=args.hf_revision, do_resize=True)
 
     image = Image.open("./examples/image1.png").convert("RGB")
     pixel_values = image_processor(images=image, return_tensors="pt").pixel_values
     pixel_values = pixel_values.to(torch.bfloat16).cuda()
 
-    hf_output = hf_model(pixel_values)
+    with torch.no_grad():
+        hf_output = hf_model(pixel_values)
     if isinstance(hf_output, tuple):
         hf_output = dict(backbone=RadioOutput(hf_output[0], hf_output[1]))
     for k, v in hf_output.items():
