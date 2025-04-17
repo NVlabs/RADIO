@@ -88,6 +88,13 @@ RESOURCE_MAP = {
         preferred_resolution=Resolution(512, 512),
     ),
     # C-RADIO
+    "c-radio_v2.5-g": RadioResource(
+        "https://huggingface.co/nvidia/C-RADIOv2-g/resolve/main/c-radio_v2-g_half.pth.tar",
+        patch_size=16,
+        max_resolution=2048,
+        preferred_resolution=(768, 768),
+        vitdet_num_global=8,
+    ),
     "c-radio_v3-l": RadioResource(
         # NOTE: Currently, this model cannot be loaded via TorchHub. Instead, use the transformers API at https://huggingface.co/nvidia/C-RADIOv3-L
         # and accept the license terms.

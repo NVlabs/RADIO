@@ -44,6 +44,8 @@ def main():
     python3 -m test_hf --hf-repo gheinrich/RADIO --torchhub-version ./radio_v2.1_bf16.pth.tar --torchhub-repo NVlabs/RADIO:dev/hf
     python3 -m test_hf --hf-repo gheinrich/RADIO --torchhub-version ./radio-v2.5-l_half.pth.tar --torchhub-repo NVlabs/RADIO:dev/hf
     python3 -m test_hf --hf-repo gheinrich/RADIO --torchhub-version ./radio-v2.5-l_half.pth.tar  --adaptor-names siglip,sam
+    python3 -m test_hf --hf-repo gheinrich/RADIO-NORM --torchhub-version /lustre/fs6/portfolios/llmservice/users/mranzinger/output/evfm/hero/n32_8-19-24_vit-h-16_hero-v4_s3/checkpoints/last_norm_release_half.pth.tar  --torchhub-repo NVlabs/RADIO:mranzinger/ship_paper
+    python3 -m test_hf --hf-repo nvidia/C-RADIOv2-B --torchhub-version /lustre/fsw/portfolios/llmservice/users/mranzinger/output/radio_releases/commercial/v2/c-radio_v2-b_half.pth.tar --hf-revision refs/pr/4 --torchhub-repo NVlabs/RADIO:gheinrich/fix-hf-pull
     """
     parser = argparse.ArgumentParser()
     parser.add_argument("--hf-repo", help="Path to the HuggingFace repo", required=True)
@@ -52,6 +54,9 @@ def main():
     )
     parser.add_argument(
         "--torchhub-repo", help="Path to the Torchhub repo", default="NVlabs/RADIO"
+    )
+    parser.add_argument(
+        "--hf-revision", help="HuggingFace revision to checkout", default="main"
     )
     parser.add_argument(
         "--adaptor-names",
@@ -63,13 +68,13 @@ def main():
 
     args = parser.parse_args()
 
-    hf_config = AutoConfig.from_pretrained(args.hf_repo, trust_remote_code=True)
+    hf_config = AutoConfig.from_pretrained(args.hf_repo, revision=args.hf_revision, trust_remote_code=True)
     if args.adaptor_names is not None:
         # Configure adaptors if specified on the command line.
         # This needs to happen before we instantiate the model.
         hf_config.adaptor_names = args.adaptor_names
     hf_model = AutoModel.from_pretrained(
-        args.hf_repo, trust_remote_code=True, config=hf_config
+        args.hf_repo, revision=args.hf_revision, trust_remote_code=True, config=hf_config
     )
     hf_model.eval().cuda()
 
@@ -94,9 +99,12 @@ def main():
         "radio_model",
         version=args.torchhub_version,
         adaptor_names=args.adaptor_names,
+        force_reload=True,
     )
     torchhub_model.cuda().eval()
-    torchhub_output = torchhub_model(x)
+
+    with torch.no_grad():
+        torchhub_output = torchhub_model(x)
 
     if isinstance(torchhub_output, tuple):
         torchhub_output = dict(
@@ -126,16 +134,52 @@ def main():
         assert torch.allclose(hf_summary, torchhub_summary, atol=1e-6)
         assert torch.allclose(hf_features, torchhub_features, atol=1e-6)
 
+    hf_intermediates = hf_model.radio_model.forward_intermediates(
+                        hf_model.input_conditioner(x),
+                        indices=[-1],
+                        return_prefix_tokens=True,
+                        norm=False,
+                        stop_early=False,
+                        output_fmt='NLC',
+                        intermediates_only=True,
+                        aggregation="sparse",
+                    )
+
+    torchhub_intermediates = torchhub_model.forward_intermediates(
+        x,
+        indices=[-1],
+        return_prefix_tokens=True,
+        norm=False,
+        stop_early=False,
+        output_fmt="NLC",
+        intermediates_only=True,
+        aggregation="sparse",
+    )
+    for i, (intermediates, torchhub_intermediates) in enumerate(
+        zip(hf_intermediates, torchhub_intermediates)
+    ):
+        print(f"[{i}] HF model intermediates inference on tensor shape {x.shape} returned summary ",
+                f"with shape={intermediates.summary.shape} and std={intermediates.summary.std().item():.3}, ",
+                f"features with shape={intermediates.features.shape} and std={intermediates.features.std().item():.3}",
+        )
+        print(f"[{i}] TorchHub model intermediates inference on tensor shape {x.shape} returned summary ",
+                f"with shape={torchhub_intermediates.summary.shape} and std={torchhub_intermediates.summary.std().item():.3}, ",
+                f"features with shape={torchhub_intermediates.features.shape} and std={torchhub_intermediates.features.std().item():.3}",
+        )
+        # Make sure the results are the same.
+        assert torch.allclose(intermediates.summary, torchhub_intermediates.summary, atol=1e-6)
+
     print("All outputs matched!")
 
     # Infer a sample image.
-    image_processor = CLIPImageProcessor.from_pretrained(args.hf_repo)
+    image_processor = CLIPImageProcessor.from_pretrained(args.hf_repo, revision=args.hf_revision, do_resize=True)
 
     image = Image.open("./examples/image1.png").convert("RGB")
     pixel_values = image_processor(images=image, return_tensors="pt").pixel_values
     pixel_values = pixel_values.to(torch.bfloat16).cuda()
 
-    hf_output = hf_model(pixel_values)
+    with torch.no_grad():
+        hf_output = hf_model(pixel_values)
     if isinstance(hf_output, tuple):
         hf_output = dict(backbone=RadioOutput(hf_output[0], hf_output[1]))
     for k, v in hf_output.items():

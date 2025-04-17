@@ -28,9 +28,12 @@ from .adaptor_generic import GenericAdaptor, AdaptorBase
 from .adaptor_mlp import create_mlp_from_config
 from .adaptor_registry import adaptor_registry
 from .cls_token import ClsToken
+from .dinov2_arch import dinov2_vitg14_reg
 from .enable_cpe_support import enable_cpe
 from .enable_spectral_reparam import configure_spectral_reparam_from_args
 from .eradio_model import eradio
+from .feature_normalizer import FeatureNormalizer, IntermediateFeatureNormalizer
+from .forward_intermediates import forward_intermediates
 from .radio_model import create_model_from_args
 from .radio_model import RADIOModel as RADIOModelBase, Resolution
 from .input_conditioner import get_default_conditioner, InputConditioner
@@ -40,6 +43,7 @@ from .vitdet import apply_vitdet_arch, VitDetArgs
 
 # Register extra models
 from .extra_timm_models import *
+from .extra_models import *
 
 
 class RADIOConfig(PretrainedConfig):
@@ -55,6 +59,8 @@ class RADIOConfig(PretrainedConfig):
         adaptor_names: Union[str, List[str]] = None,
         adaptor_configs: Dict[str, Dict[str, int]] = None,
         vitdet_window_size: Optional[int] = None,
+        feature_normalizer_config: Optional[dict] = None,
+        inter_feature_normalizer_config: Optional[dict] = None,
         **kwargs,
     ):
         self.args = args
@@ -74,7 +80,10 @@ class RADIOConfig(PretrainedConfig):
         self.adaptor_names = adaptor_names
         self.adaptor_configs = adaptor_configs
         self.vitdet_window_size = vitdet_window_size
+        self.feature_normalizer_config = feature_normalizer_config
+        self.inter_feature_normalizer_config = inter_feature_normalizer_config
         super().__init__(**kwargs)
+
 
 
 class RADIOModel(PreTrainedModel):
@@ -118,6 +127,19 @@ class RADIOModel(PreTrainedModel):
             adaptor.head_idx = mlp_config["head_idx"]
             adaptors[adaptor_name] = adaptor
 
+        feature_normalizer = None
+        if config.feature_normalizer_config is not None:
+            # Actual normalization values will be restored when loading checkpoint weights.
+            feature_normalizer = FeatureNormalizer(config.feature_normalizer_config["embed_dim"])
+
+        inter_feature_normalizer = None
+        if config.inter_feature_normalizer_config is not None:
+            inter_feature_normalizer = IntermediateFeatureNormalizer(
+                config.inter_feature_normalizer_config["num_intermediates"],
+                config.inter_feature_normalizer_config["embed_dim"],
+                rot_per_layer=config.inter_feature_normalizer_config["rot_per_layer"],
+                dtype=dtype)
+
         self.radio_model = RADIOModelBase(
             model,
             input_conditioner,
@@ -127,6 +149,8 @@ class RADIOModel(PreTrainedModel):
             window_size=config.vitdet_window_size,
             preferred_resolution=config.preferred_resolution,
             adaptors=adaptors,
+            feature_normalizer=feature_normalizer,
+            inter_feature_normalizer=inter_feature_normalizer,
         )
 
     @property
