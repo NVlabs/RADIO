@@ -126,13 +126,6 @@ def vit_bigG_patch14_224(pretrained=False, **kwargs) -> VisionTransformer:
     return model
 
 
-@register_model
-def vit_bigG_patch16_224(pretrained=False, **kwargs) -> VisionTransformer:
-    model_args = dict(patch_size=16, embed_dim=1664, depth=48, num_heads=16, init_values=1e-5, weight_init='skip', norm_layer=nn.RMSNorm, drop_path_rate=0.4)
-    model = _create_vision_transformer('vit_bigG_patch16', pretrained=False, **dict(model_args, **kwargs))
-    return model
-
-
 def _create_vision_transformer(*args, **kwargs):
     model = _timm_create_vision_transformer(*args, **kwargs)
     _patch_layer_scale(model)
