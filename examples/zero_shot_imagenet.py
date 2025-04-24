@@ -257,6 +257,8 @@ def get_clip_classifier(model, tokenizer,
     cache_dir = os.path.join(hub.get_dir(), 'NVlabs_RADIO_main_clip/classifier')
     os.makedirs(cache_dir, exist_ok=True)
 
+    barrier()
+
     cache_file = os.path.join(cache_dir, f'{cache_hash}.pt')
     if not invalidate_cache and os.path.exists(cache_file):
         cache = torch.load(cache_file, map_location=device)
