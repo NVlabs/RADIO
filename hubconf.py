@@ -46,6 +46,11 @@ def radio_model(
         chk = load_state_dict_from_url(
             resource.url, progress=progress, map_location="cpu", weights_only=False,
         )
+        if not resource.supports_vitdet and vitdet_window_size is not None:
+            raise ValueError(
+                f"vitdet_window_size is not supported for {version}. "
+                "Please set it to None or use a different version."
+            )
 
     if "state_dict_ema" in chk:
         state_dict = chk["state_dict_ema"]

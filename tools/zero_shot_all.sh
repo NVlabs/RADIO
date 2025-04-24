@@ -7,6 +7,7 @@ PATCH_SIZE=16
 MIN_RES=0
 STEP=""
 MAX_RES=100000
+BATCH_SIZE=128
 
 # Parse command-line options
 while [[ "$#" -gt 0 ]]; do
@@ -29,6 +30,10 @@ while [[ "$#" -gt 0 ]]; do
             ;;
         --max-res)
             MAX_RES="$2"
+            shift 2
+            ;;
+        --batch-size)
+            BATCH_SIZE="$2"
             shift 2
             ;;
         *)
@@ -65,14 +70,14 @@ echo "Resolution,Top 1 Accuracy" >> "$CSV"
 
 for res in "${RESOLUTIONS[@]}"; do
     echo "Resolution: $res $res"
-    trun examples/zero_shot_imagenet.py --model-version "$CHK" --resolution "$res" "$res" --csv-out "$CSV" | grep "Top 1"
+    trun examples/zero_shot_imagenet.py --model-version "$CHK" --resolution "$res" "$res" --csv-out "$CSV" --batch-size "$BATCH_SIZE" | grep "Top 1"
     echo "Resolution: $res"
-    trun examples/zero_shot_imagenet.py --model-version "$CHK" --resolution "$res" --csv-out "$CSV" | grep "Top 1"
+    trun examples/zero_shot_imagenet.py --model-version "$CHK" --resolution "$res" --csv-out "$CSV" --batch-size "$BATCH_SIZE" | grep "Top 1"
 done
 
 vdt_res=$((1024 * PATCH_SIZE / 16))
 echo "Resolution: $vdt_res $vdt_res - VitDet: 16"
-trun examples/zero_shot_imagenet.py --model-version "$CHK" --resolution $vdt_res $vdt_res --vitdet-window-size 16 --csv-out "$CSV" | grep "Top 1"
+trun examples/zero_shot_imagenet.py --model-version "$CHK" --resolution $vdt_res $vdt_res --vitdet-window-size 16 --csv-out "$CSV" --batch-size "$BATCH_SIZE" | grep "Top 1"
 
 P16_KNN_RESOLUTIONS=(512)
 KNN_RESOLUTIONS=()

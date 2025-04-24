@@ -35,6 +35,8 @@ For business inquiries, please visit our website and submit the form: [NVIDIA Re
 
 ## News/Release
 
+- [6.3.2025] 🔥🔥🔥 C-RADIOv3 has been released. These are [commercially viable models](https://developer.download.nvidia.com/licenses/nvidia-open-model-license-agreement-june-2024.pdf), and also represent our strongest models to date!
+- [5.1.2025] FeatSharp has been accepted to **ICML 2025**.
 - [2.26.2025] RADIOv2.5 paper has been accepted to **CVPR 2025**. See you in Nashville.
 - [12.18.2024] We release C-RADIO, a ViT-H/16 model which can be used for commercial products, under the [NVIDIA Open Model License Agreement](https://developer.download.nvidia.com/licenses/nvidia-open-model-license-agreement-june-2024.pdf) license!
 - [12.11.2024] We release RADIOv2.5 ViT-g/14, our biggest model yet!
@@ -59,9 +61,23 @@ RADIO, a new vision foundation model, excels across visual domains, serving as a
   <img src="assets/radio_overview_github.png" width="768"/>
 </div>
 
+## Licensing
+
+Models prefixed with `C-RADIO` are governed by the [NVIDIA Open Model License](https://developer.download.nvidia.com/licenses/nvidia-open-model-license-agreement-june-2024.pdf), which enables commercial use cases.
+
+Models prefixed with `E-RADIO` and `RADIO` are governed by the [NSCL LICENSE](./LICENSE) file, which is non-commercial.
+
 ## Quick start and model versions:
 
-The latest model version is RADIOv2. We will update the description once new model is available.
+The latest model version is C-RADIOv3. We will update the description once new model is available.
+
+### Finding Supported Versions
+
+The list of available versions, and some of their attributes, can be found in [common.py](./radio/common.py). Those keys in the `RESOURCE_MAP` dictionary may be used as the `version` argument in `torch.hub.load`. Refer to the licensing section above for the use restrictions of particular models.
+
+### C-RADIO
+
+The C-RADIO (stands for Commercial RADIO) family of models are trained using different data that is commercially viable. Because of this, it enables us to release with the [NVIDIA Open Model License](https://developer.download.nvidia.com/licenses/nvidia-open-model-license-agreement-june-2024.pdf) which allows for commercial use cases.
 
 ### TorchHub
 
@@ -73,10 +89,10 @@ from PIL import Image
 import torch
 from torch.nn import functional as F
 from torchvision.transforms.functional import pil_to_tensor
-#model_version="radio_v2.5-g" # for RADIOv2.5-g model (ViT-H/14)
-model_version="radio_v2.5-h" # for RADIOv2.5-H model (ViT-H/16)
-# model_version="radio_v2.5-l" # for RADIOv2.5-L model (ViT-L/16)
-#model_version="radio_v2.5-b" # for RADIOv2.5-B model (ViT-B/16)
+#model_version="c-radio_v3-g" # for C-RADIOv3-g model (ViT-H/14)
+model_version="c-radio_v3-h" # for C-RADIOv3-H model (ViT-H/16)
+# model_version="c-radio_v3-l" # for C-RADIOv3-L model (ViT-L/16)
+#model_version="c-radio_v3-b" # for C-RADIOv3-B model (ViT-B/16)
 #model_version="e-radio_v2" # for E-RADIO
 model = torch.hub.load('NVlabs/RADIO', 'radio_model', version=model_version, progress=True, skip_validation=True)
 model.cuda().eval()
@@ -461,13 +477,13 @@ If you find this repository useful, please consider giving a star and citation:
 #### ArXiv Reference:
 ```bibtex
 @misc{ranzinger2025featsharpvisionmodelfeatures,
-      title={FeatSharp: Your Vision Model Features, Sharper}, 
+      title={FeatSharp: Your Vision Model Features, Sharper},
       author={Mike Ranzinger and Greg Heinrich and Pavlo Molchanov and Jan Kautz and Bryan Catanzaro and Andrew Tao},
       year={2025},
       eprint={2502.16025},
       archivePrefix={arXiv},
       primaryClass={cs.CV},
-      url={https://arxiv.org/abs/2502.16025}, 
+      url={https://arxiv.org/abs/2502.16025},
 }
 ```
 
