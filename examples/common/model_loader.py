@@ -174,9 +174,6 @@ class SigLIP2Wrapper(CLIPWrapper):
 
         return self._wrap_output(summary, features)
 
-    # def encode_text(self, text, raw_text: List[str], normalize: bool = False):
-    #     inputs = self._proc(text=raw_text, return_tensors='pt', max_length=64, padding='max_length', truncation=True).to('cuda')
-    #     output = self.inner.text_model(**inputs, return_dict=True)
     def encode_text(self, text, normalize: bool = False):
         output = self.inner.text_model(**text, return_dict=True)
         token = output.pooler_output
@@ -466,7 +463,6 @@ def load_model(version: str, adaptor_names: str = None, use_huggingface: bool = 
 
         model = AutoModel.from_pretrained(version, trust_remote_code=True)
         proc = AutoProcessor.from_pretrained(version, trust_remote_code=True)
-        # tokenizer = AutoTokenizer.from_pretrained(version, trust_remote_code=True)
 
         img_proc = proc.image_processor
         preprocessor = InputConditioner(1.0,
