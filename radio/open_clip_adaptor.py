@@ -14,19 +14,19 @@ import torch.nn.functional as F
 from .adaptor_registry import adaptor_registry, dict_t, state_t
 
 from .adaptor_generic import GenericAdaptor
-
+from .utils import rank_gate
 
 class OpenCLIP_RADIO(GenericAdaptor):
     def __init__(self, main_config: Namespace, adaptor_config: dict_t, state: state_t):
         super().__init__(main_config, adaptor_config, state)
 
         import open_clip
-
-        self.oc_model = open_clip.create_model_from_pretrained(
-            model_name=adaptor_config['model'],
-            pretrained=adaptor_config['pretrained'],
-            return_transform=False,
-        )
+        with rank_gate():
+            self.oc_model = open_clip.create_model_from_pretrained(
+                model_name=adaptor_config['model'],
+                pretrained=adaptor_config['pretrained'],
+                return_transform=False,
+            )
         # Unload these parameters
         self.oc_model.visual = None
 

@@ -13,6 +13,7 @@ from timm.data import IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD, OPENAI_CLIP_M
 from common.utils import rank_gate
 from radio.adaptor_base import RadioOutput
 from radio.input_conditioner import InputConditioner
+from radio.siglip2_adaptor import SigLIP2WrappedTokenizer
 
 
 def dv2_sdpa(self, x: torch.Tensor) -> torch.Tensor:
@@ -133,7 +134,6 @@ class SigLIPWrapper(CLIPWrapper):
         token = self.inner.visual.trunk.attn_pool(features)
         return self._wrap_output(token, features)
 
-
 class SigLIP2Wrapper(CLIPWrapper):
     def __init__(self, clip_model, tokenizer, proc, adaptor_name, clip_mode = False, patch_size: int = 16, is_dynamic: bool = True):
         super().__init__(clip_model, tokenizer, adaptor_name, clip_mode)
@@ -174,9 +174,11 @@ class SigLIP2Wrapper(CLIPWrapper):
 
         return self._wrap_output(summary, features)
 
-    def encode_text(self, text, raw_text: List[str], normalize: bool = False):
-        inputs = self._proc(text=raw_text, return_tensors='pt', max_length=64, padding='max_length', truncation=True).to('cuda')
-        output = self.inner.text_model(**inputs, return_dict=True)
+    # def encode_text(self, text, raw_text: List[str], normalize: bool = False):
+    #     inputs = self._proc(text=raw_text, return_tensors='pt', max_length=64, padding='max_length', truncation=True).to('cuda')
+    #     output = self.inner.text_model(**inputs, return_dict=True)
+    def encode_text(self, text, normalize: bool = False):
+        output = self.inner.text_model(**text, return_dict=True)
         token = output.pooler_output
 
         if normalize:
@@ -464,13 +466,15 @@ def load_model(version: str, adaptor_names: str = None, use_huggingface: bool = 
 
         model = AutoModel.from_pretrained(version, trust_remote_code=True)
         proc = AutoProcessor.from_pretrained(version, trust_remote_code=True)
-        tokenizer = AutoTokenizer.from_pretrained(version, trust_remote_code=True)
+        # tokenizer = AutoTokenizer.from_pretrained(version, trust_remote_code=True)
 
         img_proc = proc.image_processor
         preprocessor = InputConditioner(1.0,
             norm_mean=img_proc.image_mean,
             norm_std=img_proc.image_std,
         )
+
+        tokenizer = SigLIP2WrappedTokenizer(proc)
 
         model = SigLIP2Wrapper(model, tokenizer, proc, adaptor_names, clip_mode='clip' in adaptor_names if adaptor_names else False, is_dynamic=is_dynamic)
         info = ModelInfo(model_class='SigLIP2', model_subtype=version)
