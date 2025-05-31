@@ -18,6 +18,7 @@ class RadioResource:
     patch_size: int
     max_resolution: int
     preferred_resolution: Resolution
+    supports_vitdet: bool = True
     vitdet_num_windowed: Optional[int] = None
     vitdet_num_global: Optional[int] = None
 
@@ -95,10 +96,27 @@ RESOURCE_MAP = {
         preferred_resolution=(768, 768),
         vitdet_num_global=8,
     ),
+    "c-radio_v3-b": RadioResource(
+        # NOTE: Currently, this model cannot be loaded via TorchHub. Instead, use the transformers API at https://huggingface.co/nvidia/C-RADIOv3-L
+        # and accept the license terms.
+        "https://huggingface.co/nvidia/C-RADIOv3-B/resolve/main/c-radio-v3_b_half.pth.tar?download=true",
+        patch_size=16,
+        max_resolution=2048,
+        preferred_resolution=Resolution(512, 512),
+        supports_vitdet=False,
+    ),
     "c-radio_v3-l": RadioResource(
         # NOTE: Currently, this model cannot be loaded via TorchHub. Instead, use the transformers API at https://huggingface.co/nvidia/C-RADIOv3-L
         # and accept the license terms.
         "https://huggingface.co/nvidia/C-RADIOv3-L/resolve/main/c-radio-v3_l_half.pth.tar?download=true",
+        patch_size=16,
+        max_resolution=2048,
+        preferred_resolution=Resolution(512, 512),
+    ),
+    "c-radio_v3-g": RadioResource(
+        # NOTE: Currently, this model cannot be loaded via TorchHub. Instead, use the transformers API at https://huggingface.co/nvidia/C-RADIOv3-G
+        # and accept the license terms.
+        "https://huggingface.co/nvidia/C-RADIOv3-G/resolve/main/c-radio-v3_g_half.pth.tar?download=true",
         patch_size=16,
         max_resolution=2048,
         preferred_resolution=Resolution(512, 512),
