@@ -7,7 +7,10 @@ import torch
 from torch import nn
 import torch.nn.functional as F
 
-from timm.models.registry import register_model
+try:
+    from timm.models import register_model
+except ImportError:
+    from timm.models.registry import register_model
 from timm.data.constants import IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD
 
 from .forward_intermediates import forward_intermediates
