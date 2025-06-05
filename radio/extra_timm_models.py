@@ -13,7 +13,7 @@ import torch
 from torch import nn
 from torch.nn import functional as F
 
-from timm.models import register_model
+from timm.models import register_model, PretrainedCfg
 from timm.models.vision_transformer import (
     VisionTransformer,
     _create_vision_transformer as _timm_create_vision_transformer,
@@ -127,6 +127,10 @@ def vit_bigG_patch14_224(pretrained=False, **kwargs) -> VisionTransformer:
 
 
 def _create_vision_transformer(*args, **kwargs):
+    if kwargs.get('pretrained_cfg', None) is None:
+        # This prevents the warning from being emitted
+        kwargs['pretrained_cfg'] = PretrainedCfg()
+
     model = _timm_create_vision_transformer(*args, **kwargs)
     _patch_layer_scale(model)
     return model

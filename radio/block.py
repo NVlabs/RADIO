@@ -5,7 +5,11 @@ Block modules
 
 import torch
 import torch.nn as nn
-from timm.models.layers import DropPath
+
+try:
+    from timm.layers import DropPath
+except ImportError:
+    from timm.models.layers import DropPath
 
 from .conv import Conv
 # from .transformer import TransformerBlock

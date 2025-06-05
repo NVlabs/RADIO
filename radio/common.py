@@ -18,6 +18,7 @@ class RadioResource:
     patch_size: int
     max_resolution: int
     preferred_resolution: Resolution
+    supports_vitdet: bool = True
     vitdet_num_windowed: Optional[int] = None
     vitdet_num_global: Optional[int] = None
 
@@ -89,20 +90,50 @@ RESOURCE_MAP = {
     ),
     # C-RADIO
     "c-radio_v2.5-g": RadioResource(
+        # NOTE: C-RADIO models are bound by different license terms than that present in the LICENSE file.
+        # Please refer to the readme, or to https://huggingface.co/nvidia/C-RADIOv2-g for more information.
         "https://huggingface.co/nvidia/C-RADIOv2-g/resolve/main/c-radio_v2-g_half.pth.tar",
         patch_size=16,
         max_resolution=2048,
         preferred_resolution=(768, 768),
         vitdet_num_global=8,
     ),
+    "c-radio_v3-b": RadioResource(
+        # NOTE: C-RADIO models are bound by different license terms than that present in the LICENSE file.
+        # Please refer to the readme, or to https://huggingface.co/nvidia/C-RADIOv3-B for more information.
+        "https://huggingface.co/nvidia/C-RADIOv3-B/resolve/main/c-radio_v3-b_half.pth.tar?download=true",
+        patch_size=16,
+        max_resolution=2048,
+        preferred_resolution=Resolution(512, 512),
+        supports_vitdet=False,
+    ),
     "c-radio_v3-l": RadioResource(
-        # NOTE: Currently, this model cannot be loaded via TorchHub. Instead, use the transformers API at https://huggingface.co/nvidia/C-RADIOv3-L
-        # and accept the license terms.
+        # NOTE: C-RADIO models are bound by different license terms than that present in the LICENSE file.
+        # Please refer to the readme, or to https://huggingface.co/nvidia/C-RADIOv3-L for more information.
         "https://huggingface.co/nvidia/C-RADIOv3-L/resolve/main/c-radio-v3_l_half.pth.tar?download=true",
         patch_size=16,
         max_resolution=2048,
         preferred_resolution=Resolution(512, 512),
+        supports_vitdet=False,
+    ),
+    "c-radio_v3-h": RadioResource(
+        # NOTE: C-RADIO models are bound by different license terms than that present in the LICENSE file.
+        # Please refer to the readme, or to https://huggingface.co/nvidia/C-RADIOv3-H for more information.
+        "https://huggingface.co/nvidia/C-RADIOv3-H/resolve/main/c-radio_v3-h_half.pth.tar?download=true",
+        patch_size=16,
+        max_resolution=2048,
+        preferred_resolution=Resolution(512, 512),
+        supports_vitdet=False,
+    ),
+    "c-radio_v3-g": RadioResource(
+        # NOTE: C-RADIO models are bound by different license terms than that present in the LICENSE file.
+        # Please refer to the readme, or to https://huggingface.co/nvidia/C-RADIOv3-g for more information.
+        "https://huggingface.co/nvidia/C-RADIOv3-g/resolve/main/c-radio_v3-g_half.pth.tar?download=true",
+        patch_size=16,
+        max_resolution=2048,
+        preferred_resolution=Resolution(512, 512),
+        supports_vitdet=False,
     ),
 }
 
-DEFAULT_VERSION = "radio_v2.5-h"
+DEFAULT_VERSION = "c-radio_v3-h"

@@ -19,9 +19,15 @@
 import timm
 import torch
 import torch.nn as nn
-from timm.models.registry import register_model
+try:
+    from timm.models import register_model
+except ImportError:
+    from timm.models.registry import register_model
 
-from timm.models.layers import trunc_normal_, DropPath, LayerNorm2d
+try:
+    from timm.layers import trunc_normal_, DropPath, LayerNorm2d
+except ImportError:
+    from timm.models.layers import trunc_normal_, DropPath, LayerNorm2d
 import numpy as np
 import torch.nn.functional as F
 import math
