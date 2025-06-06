@@ -89,10 +89,19 @@ RESOURCE_MAP = {
         preferred_resolution=Resolution(512, 512),
     ),
     # C-RADIO
-    "c-radio_v2.5-g": RadioResource(
+    "c-radio_v2-g": RadioResource(
         # NOTE: C-RADIO models are bound by different license terms than that present in the LICENSE file.
         # Please refer to the readme, or to https://huggingface.co/nvidia/C-RADIOv2-g for more information.
         "https://huggingface.co/nvidia/C-RADIOv2-g/resolve/main/c-radio_v2-g_half.pth.tar",
+        patch_size=16,
+        max_resolution=2048,
+        preferred_resolution=(768, 768),
+        vitdet_num_global=8,
+    ),
+    "c-radio_v2-vlm-h": RadioResource(
+        # NOTE: C-RADIO models are bound by different license terms than that present in the LICENSE file.
+        # Please refer to the readme, or to https://huggingface.co/nvidia/C-RADIOv2-VLM-H for more information.
+        "https://huggingface.co/nvidia/C-RADIOv2-VLM-H/resolve/main/c-radio_v2-vlm-h.pth.tar",
         patch_size=16,
         max_resolution=2048,
         preferred_resolution=(768, 768),
