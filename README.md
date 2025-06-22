@@ -474,6 +474,18 @@ If you find this repository useful, please consider giving a star and citation:
 
 ### FeatSharp: Your Vision Model Features, Sharper
 
+#### ICML 2025 Reference
+```bibtex
+@inproceedings{
+ranzinger2025featsharp,
+title={FeatSharp: Your Vision Model Features, Sharper},
+author={Mike Ranzinger and Greg Heinrich and Pavlo Molchanov and Bryan Catanzaro and Andrew Tao},
+booktitle={Forty-second International Conference on Machine Learning},
+year={2025},
+url={https://openreview.net/forum?id=lioemOcq3H}
+}
+```
+
 #### ArXiv Reference:
 ```bibtex
 @misc{ranzinger2025featsharpvisionmodelfeatures,
