@@ -9,6 +9,7 @@
 # Register the adaptors
 from .adaptor_registry import adaptor_registry
 from . import open_clip_adaptor
+from . import siglip2_adaptor
 from .adaptor_base import AdaptorInput, RadioOutput, AdaptorBase
 
 # Enable support for other model types via the timm register_model mechanism
