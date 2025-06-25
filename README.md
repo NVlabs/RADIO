@@ -1,6 +1,8 @@
 [![Star on GitHub](https://img.shields.io/github/stars/NVlabs/RADIO.svg?style=social)](https://github.com/NVlabs/RADIO/stargazers)
 [![License](https://img.shields.io/badge/license-NC-blue.svg)](LICENSE)
+[![Paper](https://img.shields.io/badge/FeatSharp-ICML.2025-purple.svg)](https://openreview.net/pdf?id=lioemOcq3H)
 [![Paper](https://img.shields.io/badge/FeatSharp-arXiv.2502.16025-purple.svg)](https://arxiv.org/abs/2412.07679)
+[![Paper](https://img.shields.io/badge/RADIOv2.5-CVPR.2025-green.svg)](https://openaccess.thecvf.com/content/CVPR2025/papers/Heinrich_RADIOv2.5_Improved_Baselines_for_Agglomerative_Vision_Foundation_Models_CVPR_2025_paper.pdf)
 [![Paper](https://img.shields.io/badge/RADIOv2.5-arXiv.2412.07679-green.svg)](https://arxiv.org/abs/2412.07679)
 [![Paper](https://img.shields.io/badge/PHI_Standardization-arXiv.2410.01680-orange.svg)](https://arxiv.org/abs/2410.01680)
 [![Paper](https://img.shields.io/badge/AM_RADIO-arXiv.2312.06709-blue.svg)](https://arxiv.org/abs/2312.06709)
@@ -35,6 +37,7 @@ For business inquiries, please visit our website and submit the form: [NVIDIA Re
 
 ## News/Release
 
+- [6.25.2025] [FeatSharp](https://github.com/NVlabs/FeatSharp) code is now available! We used this to train all of the C-RADIOv3 models, and also the C-RADIOv2-VLM model that's powering Llama Nemotron Nano VL 8B, currently \#1 on [OCR Bench v2](https://ling99-ocrbench-v2-leaderboard.hf.space/).
 - [6.3.2025] 🔥🔥🔥 C-RADIOv3 has been released. These are [commercially viable models](https://developer.download.nvidia.com/licenses/nvidia-open-model-license-agreement-june-2024.pdf), and also represent our strongest models to date!
 - [5.1.2025] FeatSharp has been accepted to **ICML 2025**.
 - [2.26.2025] RADIOv2.5 paper has been accepted to **CVPR 2025**. See you in Nashville.
