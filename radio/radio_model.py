@@ -146,6 +146,21 @@ class RADIOModel(nn.Module):
         if fn is not None:
             fn()
 
+    def cpe_video_mode(self, t: int):
+        '''
+        Context Manager.
+
+        Puts the patch generator into video mode, with the specified number of temporal frames.
+        In video mode, the expectation is that the input buffer is of shape `(B*T, C, H, W)`.
+        Video mode means that the same position viewport will be used for every frame in the temporal sequence, while keeping
+        distinct viewports for each video in the batch.
+
+        Usage:
+        with radio_model.cpe_video_mode(t=t):
+            y = radio_model(x)
+        '''
+        return self.model.cpe_video_mode(t)
+
     def forward(self, x: torch.Tensor, feature_fmt: str = 'NLC') -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
         '''
         Forward process for model.
