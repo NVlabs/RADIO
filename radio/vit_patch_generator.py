@@ -89,6 +89,8 @@ class ViTPatchGenerator(nn.Module):
 
         self.patch_normalizer = nn.LayerNorm(embed_dim) if normalize_patches else nn.Identity()
 
+        self.num_video_frames = None
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         patches = self.embed_patches(x)
         patches, pos_enc = self.apply_pos_enc(patches, input_size=x.shape[2:])
@@ -204,6 +206,12 @@ class ViTPatchGenerator(nn.Module):
 
         if self.cpe_mode:
             if self.training:
+                if self.num_video_frames is not None:
+                    if batch_size % self.num_video_frames != 0:
+                        raise ValueError(f'Batch size {batch_size} must be divisible by num_video_frames {self.num_video_frames} for CPE mode.')
+
+                    batch_size //= self.num_video_frames
+
                 min_scale = math.sqrt(0.1)
                 scale = torch.rand(batch_size, 1, 1, device=pos_embed.device) * (1 - min_scale) + min_scale
                 aspect_min = math.log(3 / 4)
@@ -233,6 +241,9 @@ class ViTPatchGenerator(nn.Module):
                     padding_mode='zeros',
                     align_corners=True,
                 ).to(pos_embed.dtype)
+
+                if self.num_video_frames is not None:
+                    pos_embed = torch.repeat_interleave(pos_embed, self.num_video_frames, dim=0)
             else:
                 # i_rows, i_cols = input_dims
                 # p_rows, p_cols = pos_embed.shape[2:]
@@ -242,14 +253,14 @@ class ViTPatchGenerator(nn.Module):
                 #     pos_embed = pos_embed[..., top:top+i_rows, left:left+i_cols]
                 # else:
                 max_dim = max(input_dims)
-                pos_embed = F.interpolate(pos_embed.float(), size=(max_dim, max_dim), align_corners=True, mode='bilinear').to(pos_embed.dtype)
+                pos_embed = F.interpolate(pos_embed.float(), size=(max_dim, max_dim), align_corners=False, mode='bilinear').to(pos_embed.dtype)
 
                 pos_embed = window_select(pos_embed)
         else:
             pos_embed = window_select(pos_embed)
 
         if pos_embed.shape[-2:] != input_dims:
-            pos_embed = F.interpolate(pos_embed.float(), size=input_dims, align_corners=True, mode='bilinear').to(pos_embed.dtype)
+            pos_embed = F.interpolate(pos_embed.float(), size=input_dims, align_corners=False, mode='bilinear').to(pos_embed.dtype)
 
         pos_embed = pos_embed.flatten(2).permute(0, 2, 1)
 

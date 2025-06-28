@@ -6,6 +6,7 @@
 # distribution of this software and related documentation without an express
 # license agreement from NVIDIA CORPORATION is strictly prohibited.
 
+from contextlib import contextmanager
 from typing import List, Optional, Set, Tuple, Union
 from types import MethodType
 
@@ -30,6 +31,20 @@ def _forward_cpe(self: VisionTransformer, x: torch.Tensor) -> torch.Tensor:
         x = self.blocks(x)
     x = self.norm(x)
     return x
+
+
+@contextmanager
+def _video_mode(self: VisionTransformer, t: int):
+    """
+    Context manager to temporarily set the model in video mode.
+    This is used to handle models that support both image and video inputs.
+    """
+    original_num_frames = self.patch_generator.num_video_frames
+    self.patch_generator.num_video_frames = t
+    try:
+        yield
+    finally:
+        self.patch_generator.num_video_frames = original_num_frames
 
 
 def _take_indices(
@@ -168,3 +183,5 @@ def enable_cpe(model: nn.Module,
         _enable_cpe_for_timm_vit(model.vit, *args, **kwargs)
     else:
         raise ValueError(f'CPE not supported for this model type: {type(model)}')
+
+    model.cpe_video_mode = MethodType(_video_mode, model)
