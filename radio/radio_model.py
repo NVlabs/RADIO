@@ -127,6 +127,13 @@ class RADIOModel(nn.Module):
     def embed_dim(self) -> int:
         return self.model.embed_dim
 
+    @property
+    def summary_dim(self) -> int:
+        embed_dim = self.embed_dim
+        if self.summary_idxs is not None:
+            embed_dim *= self.summary_idxs.shape[0]
+        return embed_dim
+
     def make_preprocessor_external(self) -> Callable[[torch.Tensor], torch.Tensor]:
         ret = self.input_conditioner
         self.input_conditioner = nn.Identity()
