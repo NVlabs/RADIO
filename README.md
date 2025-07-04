@@ -32,6 +32,16 @@ For business inquiries, please visit our website and submit the form: [NVIDIA Re
 
 <br clear="left"/>
 
+## Latest Models
+
+C-RADIOv3 Model Family ([Commercially Permissive](https://developer.download.nvidia.com/licenses/nvidia-open-model-license-agreement-june-2024.pdf))
+
+Loadable via torchhub (e.g. `model_version='c-radio_v3-h'`) or from HuggingFace:
+- [C-RADIOv3-B](https://huggingface.co/nvidia/C-RADIOv3-B)
+- [C-RADIOv3-L](https://huggingface.co/nvidia/C-RADIOv3-L)
+- [C-RADIOv3-H](https://huggingface.co/nvidia/C-RADIOv3-H)
+- [C-RADIOv3-g](https://huggingface.co/nvidia/C-RADIOv3-g)
+
 ---
 
 
@@ -39,6 +49,8 @@ For business inquiries, please visit our website and submit the form: [NVIDIA Re
 
 - [6.25.2025] [FeatSharp](https://github.com/NVlabs/FeatSharp) code is now available! We used this to train all of the C-RADIOv3 models, and also the C-RADIOv2-VLM model that's powering Llama Nemotron Nano VL 8B, currently \#1 on [OCR Bench v2](https://ling99-ocrbench-v2-leaderboard.hf.space/).
 - [6.3.2025] 🔥🔥🔥 C-RADIOv3 has been released. These are [commercially viable models](https://developer.download.nvidia.com/licenses/nvidia-open-model-license-agreement-june-2024.pdf), and also represent our strongest models to date!
+  - Can be loaded using TorchHub, or:
+  - Huggingface: [C-RADIOv3-B](https://huggingface.co/nvidia/C-RADIOv3-B) [C-RADIOv3-L](https://huggingface.co/nvidia/C-RADIOv3-L) [C-RADIOv3-H](https://huggingface.co/nvidia/C-RADIOv3-H) [C-RADIOv3-g](https://huggingface.co/nvidia/C-RADIOv3-g)
 - [5.1.2025] FeatSharp has been accepted to **ICML 2025**.
 - [2.26.2025] RADIOv2.5 paper has been accepted to **CVPR 2025**. See you in Nashville.
 - [12.18.2024] We release C-RADIO, a ViT-H/16 model which can be used for commercial products, under the [NVIDIA Open Model License Agreement](https://developer.download.nvidia.com/licenses/nvidia-open-model-license-agreement-june-2024.pdf) license!
