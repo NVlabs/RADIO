@@ -179,21 +179,32 @@ summary, features = model(pixel_values)
 
 Please see more details on usage in the [Quick Start](#quick-start---torchhub) section. Information on how to load Adapters (teacher specific heads) is also available in the Quick Start section.
 
-
-| Name         | Architecture | Precision | Teachers                                 | Throughput | Zero Shot Top-1 | kNN Top-1 | ADE20k    | VOC       | GQA       | TextVQA   | VQAv2     | SAM-COCO  |
-|--------------|--------------|-----------|------------------------------------------|------------|-----------------|-----------|-----------|-----------|-----------|-----------|-----------|-----------|
-| radio-g | DINOv2 ViT-g/14 | Float32   | DFN CLIP; SigLIP, DINOv2; SAM; |           | 83.33   | 85.34 | **54.56** | **87.37** |  | | | 76.17 |
-| c-radio-h | ViT-H/16-CPE | Float32   | DFN CLIP; SigLIP, DINOv2; SAM; | 556        | 82.24           | 85.27     | 52.55 | 85.88 | 64.01 | 62.12 | 80.74 |  74.82   |
-| radio_v2.5-h | ViT-H/16-CPE | Float32   | DFN CLIP; SigLIP, DINOv2; SAM; Florence2 | 556        | 82.51           | 85.81     | 51.58 | **85.97** | **65.03** | **62.39** | **81.56** | 76.14     |
-| radio_v2.5-l | ViT-L/16-CPE | Float32   | DFN CLIP; SigLIP; DINOv2; SAM            |            | 81.01           | 84.68     | 51.47     | 85.49     | 64.13     | 61.93     | 81.02     | 75.06     |
-| radio_v2.5-b | ViT-B/16-CPE | Float32   | DFN CLIP; SigLIP; DINOv2; SAM            |            | 74.57           | 81.89     | 48.94     | 84.35     | 63.31     | 56.93     | 79.22     | 73.87     |
-| radio_v2.1   | ViT-H/16-CPE | BFloat16  | DFN CLIP; OpenAI CLIP; DINOv2; SAM       | 556        | **82.93**       | **86.06** | 51.34     | 84.71     | 63.01     | 56.32     | 79.28     | **76.58** |
-| radio_v2     | ViT-H/16-CPE | Float32   | DFN CLIP; OpenAI CLIP; DINOv2; SAM       | 556        | 82.71           | 85.92     | 51.33     |           | 62.78     | 56.37     | 79.00     | 76.21     |
-| radio_v1     | ViT-H/14-CPE | Float32   | DFN CLIP; OpenAI CLIP; DINOv2            | 556        | 82.73           | 85.29     | 50.32     | 85.17     | 61.43     | 54.92     | 77.88     |           |
-| eradio_v1    | E-RADIO      | Float32   | Meta CLIP; DINOv2                        | 3697       | 77.87           | 83.73     | 45.50     | 79.95     | 59.55     | 46.31     | 72.05     |           |
+## Metrics
 
 
-## Results
+| Name         | Architecture | Precision | Teachers                                 | Resolution Range | Zero Shot Top-1 | kNN Top-1 | ADE20k    | VOC       | SAM-COCO  | COCO Detection AP |
+|--------------|--------------|-----------|------------------------------------------|------------------|-----------------|-----------|-----------|-----------|-----------|-------------------|
+| c-radio_v3-b | ViT-B/16-CPE | Float32   | DFN CLIP; SigLIP2-NaFlex; DINOv2; SAM    | 192 - 2048       | 71.30           | 81.22     | **49.79** | **84.68** | **74.95** | 49.44             |
+| radio_v2.5-b | ViT-B/16-CPE | Float32   | DFN CLIP; SigLIP; DINOv2; SAM            | 256 - 1024       | **74.57**       | **81.89** | 48.94     | 84.35     | 73.87     |                   |
+|--------------|--------------|-----------|------------------------------------------|------------------|-----------------|-----------|-----------|-----------|-----------|-------------------|
+| c-radio_v3-l | ViT-L/16-CPE | Float32   | DFN CLIP; SigLIP2-NaFlex; DINOv2; SAM    | 192 - 2048       | 79.95           | 84.33     | **51.87** | **86.12** | **75.82** | 52.98             |
+| radio_v2.5-l | ViT-L/16-CPE | Float32   | DFN CLIP; SigLIP; DINOv2; SAM            | 256 - 1024       | **81.01**       | **84.68** | 51.47     | 85.49     | 75.06     |                   |
+|--------------|--------------|-----------|------------------------------------------|------------------|-----------------|-----------|-----------|-----------|-----------|-------------------|
+| c-radio_v3-h | ViT-H/16-CPE | Float32   | DFN CLIP; SigLIP2-g-384; DINOv2; SAM     | 192 - 2048       | 82.65           | **86.23** | **52.75** | **86.41** | 76.56     | 55.08             |
+| radio_v2.5-h | ViT-H/16-CPE | Float32   | DFN CLIP; SigLIP, DINOv2; SAM; Florence2 | 256 - 1024       | 82.51           | 85.81     | 51.58     | 85.97     | 76.14     |                   |
+| c-radio-h    | ViT-H/16-CPE | Float32   | DFN CLIP; SigLIP, DINOv2; SAM;           | 256 - 1024       | 82.24           | 85.27     | 52.55     | 85.88     |  74.82    |                   |
+| radio_v2.1   | ViT-H/16-CPE | BFloat16  | DFN CLIP; OpenAI CLIP; DINOv2; SAM       | 256 - 512        | **82.93**       | 86.06     | 51.34     | 84.71     | **76.58** |                   |
+| radio_v2     | ViT-H/16-CPE | Float32   | DFN CLIP; OpenAI CLIP; DINOv2; SAM       | 256 - 512        | 82.71           | 85.92     | 51.33     |           | 76.21     |                   |
+| radio_v1     | ViT-H/14-CPE | Float32   | DFN CLIP; OpenAI CLIP; DINOv2            | 256 - 512        | 82.73           | 85.29     | 50.32     | 85.17     |           |                   |
+|--------------|--------------|-----------|------------------------------------------|------------------|-----------------|-----------|-----------|-----------|-----------|-------------------|
+| c-radio_v3-g | ViT-g/16-CPE | Float32   | DFN CLIP; SigLIP2-g-384; DINOv2; SAM     | 192 - 2048       | **83.54**       | **86.59** | 52.68     | 85.97     | 76.36     | 54.79             |
+| radio-g      | DINOv2 ViT-g/14 | Float32 | DFN CLIP; SigLIP, DINOv2; SAM;          | 256 - 1024       | 83.33           | 85.34     | 51.94     | 85.50     | 76.17     |                   |
+|--------------|--------------|-----------|------------------------------------------|------------------|-----------------|-----------|-----------|-----------|-----------|-------------------|
+| eradio_v1    | E-RADIO      | Float32   | Meta CLIP; DINOv2                        | 256 - 512        | 77.87           | 83.73     | 45.50     | 79.95     |           |                   |
+
+
+<details>
+<summary>AM-RADIO Results</summary>
 
 ### Model stats and summarization metrics:
 
@@ -294,6 +305,7 @@ performs much better than CLIP analogs.
 | RADIOv2.5-L           | 84.7      | 60.1            | 58.5             |
 | RADIOv2.5-H           | **85.7**  | **62.5**        | 60.9             |
 
+</details>
 
 ## Detailed usage
 
