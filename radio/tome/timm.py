@@ -1,0 +1,336 @@
+# Copyright (c) 2023-2024, NVIDIA CORPORATION.  All rights reserved.
+#
+# NVIDIA CORPORATION and its licensors retain all intellectual property
+# and proprietary rights in and to this software, related documentation
+# and any modifications thereto.  Any use, reproduction, disclosure or
+# distribution of this software and related documentation without an express
+# license agreement from NVIDIA CORPORATION is strictly prohibited.
+
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+
+# This source code is licensed under the license found in the
+# LICENSE file in the root directory of this source tree.
+# --------------------------------------------------------
+# References:
+# timm: https://github.com/rwightman/pytorch-image-models/tree/master/timm
+# --------------------------------------------------------
+
+from enum import Enum
+import sys
+import warnings
+import debugpy
+from typing import Tuple
+
+from einops import rearrange
+import numpy as np
+import torch
+import torch.distributed as dist
+from torch import nn
+from torch.nn import functional as F
+from torch.nn.init import trunc_normal_, xavier_uniform_
+from timm.models.convnext import convnext_pico, ConvNeXt
+from timm.models.vision_transformer import Attention, Block, VisionTransformer
+
+from .merge import bipartite_soft_matching, merge_source, merge_wavg
+from .utils import parse_r
+
+
+class ToMeMode(Enum):
+    DISABLED = 0
+    CONSTANT = 1
+    DYNAMIC = 2
+
+
+class ToMeBlock(Block):
+    """
+    Modifications:
+     - Apply ToMe between the attention and mlp blocks
+     - Compute and propogate token size and potentially the token sources.
+    """
+
+    def _drop_path1(self, x):
+        return self.drop_path1(x) if hasattr(self, "drop_path1") else self.drop_path(x)
+
+    def _drop_path2(self, x):
+        return self.drop_path2(x) if hasattr(self, "drop_path2") else self.drop_path(x)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # Note: this is copied from timm.models.vision_transformer.Block with modifications.
+        attn_size = self._tome_info["size"] if self._tome_info["prop_attn"] else None
+        x_attn, metric = self.attn(self.norm1(x), attn_size)
+        x = x + self._drop_path1(self.ls1(x_attn))
+
+        r = self._tome_info["r"].pop(0)
+        if r > 0:
+            # Apply ToMe here
+            merge, _ = bipartite_soft_matching(
+                metric,
+                r,
+                self._tome_info["class_token"],
+            )
+            if self._tome_info["trace_source"]:
+                self._tome_info["source"] = merge_source(
+                    merge, x, self._tome_info["source"]
+                )
+            x, self._tome_info["size"] = merge_wavg(merge, x, self._tome_info["size"])
+
+        x = x + self._drop_path2(self.ls2(self.mlp(self.norm2(x))))
+        return x
+
+
+class ToMeAttention(Attention):
+    """
+    Modifications:
+     - Apply proportional attention
+     - Return the mean of k over heads from attention
+    """
+
+    def forward(
+        self, x: torch.Tensor, size: torch.Tensor = None
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        # Note: this is copied from timm.models.vision_transformer.Attention with modifications.
+        B, N, C = x.shape
+        qkv = (
+            self.qkv(x)
+            .reshape(B, N, 3, self.num_heads, C // self.num_heads)
+            .permute(2, 0, 3, 1, 4)
+        )
+        q, k, v = (
+            qkv[0],
+            qkv[1],
+            qkv[2],
+        )  # make torchscript happy (cannot use tensor as tuple)
+
+        attn_mask = None
+        if size is not None:
+            attn_mask = size.log()[:, None, None, :, 0]
+        x = F.scaled_dot_product_attention(
+            q, k, v,
+            is_causal=False,
+            dropout_p=self.attn_drop.p if self.training else 0.0,
+            scale=self.scale,
+            attn_mask=attn_mask,
+        )
+
+        x = x.transpose(1, 2).reshape(B, N, C)
+        x = self.proj(x)
+        x = self.proj_drop(x)
+
+        # Return k as well here
+        return x, k.mean(1)
+
+
+def _tx_pre_hook(model: VisionTransformer, mode: ToMeMode | str = ToMeMode.DISABLED, **mode_args):
+    if isinstance(mode, str):
+        mode = ToMeMode[mode.upper()]
+
+    def blocks_forward_pre_hook(module, input):
+        """
+        Forward pre-hook to initialize ToMe info before processing blocks.
+        This replaces the functionality that was in make_tome_class.
+        """
+        model._tome_info["num_input_tokens"] = num_tokens = input[0].shape[1]
+
+        def _get_r(r_pct: float | None = None, final_r: int | None = None, per_r: int | None = None):
+            r = None
+            if r_pct is not None:
+                num_tokens = input[0].shape[1] - model._tome_info['class_token']
+                final_r = int(r_pct * num_tokens)
+
+            if final_r is not None:
+                all_r = [0]
+                fp_per_r = final_r / (len(model.blocks) - 1)
+                for i in range(1, len(model.blocks)):
+                    fp_curr = int(i * fp_per_r)
+                    fp_prev = int((i - 1) * fp_per_r)
+                    all_r.append(fp_curr - fp_prev)
+                calc_r = sum(all_r)
+                if calc_r < final_r:
+                    all_r[-1] += final_r - calc_r
+                r = all_r
+
+            if r is None:
+                if per_r is None:
+                    raise ValueError("For constant inference r, provide either r_pct, final_r, or r.")
+                r = [0] + [per_r] * (len(model.blocks) - 1)
+
+            return r
+
+        if mode == ToMeMode.DISABLED:
+            r = 0
+        elif mode == ToMeMode.CONSTANT:
+            r_pct = mode_args.get("r_pct", None)
+            final_r = mode_args.get("final_r", None)
+            per_r = mode_args.get("r", None)
+            r = _get_r(r_pct=r_pct, final_r=final_r, per_r=per_r)
+        elif mode == ToMeMode.DYNAMIC:
+            with torch.no_grad():
+                pred_r: torch.Tensor = model.r_predictor(model._tome_info["input_img"])
+            loss_threshold = mode_args.get("loss_threshold", None)
+            if loss_threshold is None:
+                raise ValueError("For dynamic inference r, provide loss_threshold.")
+            if input[0].shape[0] != 1:
+                warnings.warn("Dynamic ToMe works best when the batch size is 1. When larger, the average r over the batch is used.")
+                pred_r = pred_r.mean(dim=0)
+            else:
+                pred_r = pred_r[0]
+
+            final_r = (pred_r < loss_threshold).sum().item()
+            r = _get_r(final_r=final_r)
+        else:
+            raise ValueError(f"Unknown ToMe mode {mode}.")
+
+        model._tome_info["r"] = parse_r(len(model.blocks), r)
+        model._tome_info["final_r"] = sum(model._tome_info["r"])
+        model._tome_info["size"] = None
+        model._tome_info["source"] = None
+    return blocks_forward_pre_hook
+
+
+def _input_pre_hook(model: VisionTransformer):
+    def patches_forward_pre_hook(module, input):
+        """
+        Forward pre-hook to initialize ToMe info before processing patches.
+        """
+        if model.training:
+            model._tome_info["input_img"] = input[0]
+
+    return patches_forward_pre_hook
+
+
+class ConstantBeta(nn.Module):
+    def __init__(self, beta: float, num_betas: int = 1):
+        super().__init__()
+        self.register_buffer("ct", torch.zeros(num_betas, dtype=torch.float32))
+        self.register_buffer("beta", torch.full((num_betas,), beta, dtype=torch.float32), persistent=False)
+
+    def forward(self, increments: torch.Tensor):
+        self.ct += increments
+        return torch.where(self.ct != 1, self.beta, 0)
+
+
+class PowerBeta(nn.Module):
+    def __init__(self, std_rel: float = 0.1, num_betas: int = 1):
+        super().__init__()
+        self.gamma = np.roots([1, 7, 16 - std_rel**-2, 12 - std_rel**-2]).real.max()
+        self.register_buffer("ct", torch.zeros(num_betas, dtype=torch.float32))
+
+    def forward(self, increments: torch.Tensor):
+        self.ct += increments
+        beta = (1 - 1 / self.ct) ** (self.gamma + 1)
+        return torch.where(self.ct > 0, beta, 1)
+
+
+class PredictorNet(nn.Module):
+    def __init__(self, num_output_slots: int = 100):
+        super().__init__()
+
+        self.base: ConvNeXt = convnext_pico(pretrained=True)
+
+        self.pos = nn.Parameter(torch.randn(1, num_output_slots, self.base.num_features) * 0.02)
+
+        self.register_buffer('causal_mask', nn.Transformer.generate_square_subsequent_mask(num_output_slots))
+
+        self.tx = nn.TransformerDecoder(
+            nn.TransformerDecoderLayer(d_model=self.base.num_features, nhead=8, dim_feedforward=self.base.num_features * 4, dropout=0.0,
+                                       batch_first=True, norm_first=True),
+            num_layers=2,
+        )
+        self.proj = nn.Sequential(
+            nn.LayerNorm(self.base.num_features),
+            nn.Linear(self.base.num_features, 1),
+        )
+
+        for n, p in self.named_parameters():
+            if p.dim() > 1 and not n.startswith('base'):
+                xavier_uniform_(p)
+
+        self.mom_beta = ConstantBeta(beta=0.95, num_betas=num_output_slots)
+        self.register_buffer('expected_loss', torch.zeros(num_output_slots, dtype=torch.float32))
+        self.step_ct = 0
+
+    def forward(self, x):
+        x = F.interpolate(x, size=(384, 384), mode='bilinear', align_corners=False)
+        y = self.base.forward_features(x)
+        y = rearrange(y, 'b c h w -> b (h w) c')
+
+        pe_tgt = self.pos.expand(y.shape[0], -1, -1)  # (batch_size, seq_len, 256)
+
+        y = self.tx(pe_tgt, y, tgt_mask=self.causal_mask, tgt_is_causal=True)
+        y = self.proj(y)[..., 0]
+        y = F.softplus(y)  # Ensure positive values for gradient norms
+        y = torch.cumsum(y, dim=1)  # Enforce monotonic increase (more tokens dropped = higher loss)
+        return y
+
+
+def _tx_post_hook(model: VisionTransformer):
+    def blocks_forward_post_hook(module, input, output):
+        """
+        Un-merges the tokens, so that the spatial correspondence is preserved.
+        """
+        expand = model._tome_info["expand"]
+        if not expand:
+            return output
+        # Source is a [B, O, I] mapping tensor, so multiplying by the transpose gives us back the input dimension
+        source = model._tome_info["source"]
+        if source is None:
+            return output
+
+        with torch.autocast('cuda', enabled=False):
+            expanded = torch.matmul(source.mT.float(), output.float())
+        return expanded
+    return blocks_forward_post_hook
+
+
+def apply_patch(
+    model: VisionTransformer, trace_source: bool = False, prop_attn: bool = True,
+    mode: ToMeMode = ToMeMode.DYNAMIC, disable_dynamic: bool = False, **mode_args,
+):
+    """
+    Applies ToMe to this transformer. Afterward, set r using model.r.
+
+    If you want to know the source of each token (e.g., for visualization), set trace_source = true.
+    The sources will be available at model._tome_info["source"] afterward.
+
+    For proportional attention, set prop_attn to True. This is only necessary when evaluating models off
+    the shelf. For trianing and for evaluating MAE models off the self set this to be False.
+    """
+    # rank = dist.get_rank() if dist.is_initialized() else 0
+    rank = 0
+    rng = np.random.default_rng(0xBAD5EED + rank)
+
+    num_prefix = getattr(model, "num_prefix_tokens", None)
+    if num_prefix is None:
+        num_prefix = 1 if model.cls_token is not None else 0
+
+    model.r = 0
+    model._tome_info = {
+        "r": model.r,
+        "size": None,
+        "source": None,
+        "trace_source": trace_source,
+        "prop_attn": prop_attn,
+        "class_token": num_prefix,
+        "distill_token": False,
+        "expand": mode_args.get("expand", False),
+        "rng": rng,
+    }
+
+    if hasattr(model, "dist_token") and model.dist_token is not None:
+        model._tome_info["distill_token"] = True
+
+    if not disable_dynamic:
+        model.r_predictor = PredictorNet()
+
+    model.patch_generator.register_forward_pre_hook(_input_pre_hook(model))
+    # Register the pre-hook on the blocks module
+    model.blocks.register_forward_pre_hook(_tx_pre_hook(model, mode=mode, **mode_args))
+    model.blocks.register_forward_hook(_tx_post_hook(model))
+
+    for module in model.modules():
+        if isinstance(module, Block):
+            module.__class__ = ToMeBlock
+            module._tome_info = model._tome_info
+        elif isinstance(module, Attention):
+            module.__class__ = ToMeAttention

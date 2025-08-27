@@ -8,6 +8,7 @@ MIN_RES=0
 STEP=""
 MAX_RES=100000
 BATCH_SIZE=128
+ADAPTOR="clip"
 
 # Parse command-line options
 while [[ "$#" -gt 0 ]]; do
@@ -34,6 +35,10 @@ while [[ "$#" -gt 0 ]]; do
             ;;
         --batch-size)
             BATCH_SIZE="$2"
+            shift 2
+            ;;
+        --adaptor)
+            ADAPTOR="$2"
             shift 2
             ;;
         *)
@@ -70,25 +75,25 @@ echo "Resolution,Top 1 Accuracy" >> "$CSV"
 
 for res in "${RESOLUTIONS[@]}"; do
     echo "Resolution: $res $res"
-    trun examples/zero_shot_imagenet.py --model-version "$CHK" --resolution "$res" "$res" --csv-out "$CSV" --batch-size "$BATCH_SIZE" | grep "Top 1"
+    trun examples/zero_shot_imagenet.py --model-version "$CHK" --resolution "$res" "$res" --csv-out "$CSV" --batch-size "$BATCH_SIZE" --adaptor-name "$ADAPTOR" | grep "Top 1"
     echo "Resolution: $res"
-    trun examples/zero_shot_imagenet.py --model-version "$CHK" --resolution "$res" --csv-out "$CSV" --batch-size "$BATCH_SIZE" | grep "Top 1"
+    trun examples/zero_shot_imagenet.py --model-version "$CHK" --resolution "$res" --csv-out "$CSV" --batch-size "$BATCH_SIZE" --adaptor-name "$ADAPTOR" | grep "Top 1"
 done
 
-vdt_res=$((1024 * PATCH_SIZE / 16))
-echo "Resolution: $vdt_res $vdt_res - VitDet: 16"
-trun examples/zero_shot_imagenet.py --model-version "$CHK" --resolution $vdt_res $vdt_res --vitdet-window-size 16 --csv-out "$CSV" --batch-size "$BATCH_SIZE" | grep "Top 1"
+# vdt_res=$((1024 * PATCH_SIZE / 16))
+# echo "Resolution: $vdt_res $vdt_res - VitDet: 16"
+# trun examples/zero_shot_imagenet.py --model-version "$CHK" --resolution $vdt_res $vdt_res --vitdet-window-size 16 --csv-out "$CSV" --batch-size "$BATCH_SIZE" --adaptor-name "$ADAPTOR" | grep "Top 1"
 
-P16_KNN_RESOLUTIONS=(512)
-KNN_RESOLUTIONS=()
-for res in ${P16_KNN_RESOLUTIONS[@]}; do
-    new_res=$((res * PATCH_SIZE / 16))
-    KNN_RESOLUTIONS+=($new_res)
-done
+# P16_KNN_RESOLUTIONS=(512)
+# KNN_RESOLUTIONS=()
+# for res in ${P16_KNN_RESOLUTIONS[@]}; do
+#     new_res=$((res * PATCH_SIZE / 16))
+#     KNN_RESOLUTIONS+=($new_res)
+# done
 
-echo "KNN Resolutions: ${KNN_RESOLUTIONS[@]}"
+# echo "KNN Resolutions: ${KNN_RESOLUTIONS[@]}"
 
-for res in "${KNN_RESOLUTIONS[@]}"; do
-    echo "KNN Resolution: $res"
-    trun examples/knn_classification.py --model-version "$CHK" --resolution $res $res --dataset imagenet-1k | grep "Accuracy"
-done
+# for res in "${KNN_RESOLUTIONS[@]}"; do
+#     echo "KNN Resolution: $res"
+#     trun examples/knn_classification.py --model-version "$CHK" --resolution $res $res --dataset imagenet-1k | grep "Accuracy"
+# done

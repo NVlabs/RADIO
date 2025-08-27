@@ -17,10 +17,11 @@ export PYTHONPATH=.:examples
 exp=${1:-"hybrid"}
 fspath="/lustre/fsw/portfolios/llmservice/users/mranzinger/output/evfm/$exp"
 resolutions=(256 512 768 1024 2048)
-adaptors=("" "siglip2-g" "clip" "siglip" "sam" "rtx-translate")
+# adaptors=("" "siglip2" "siglip2-g" "clip" "siglip" "sam" "rtx-translate")
+adaptors=("" "siglip2" "siglip2-g" "clip" "siglip" "sam" "rtx-translate")
 
 modnames=($(ls "$fspath"))
-modnames+=("siglip2-so400m")
+# modnames+=("siglip2-so400m")
 
 for adaptor in "${adaptors[@]}";
 do

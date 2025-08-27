@@ -64,7 +64,7 @@ def vit_base_patch16_v2_224(pretrained=False, **kwargs) -> VisionTransformer:
         reg_tokens=4, no_embed_class=True, img_size=518 * 16 // 14
     )
     model = _create_vision_transformer(
-        'vit_base_patch14_reg4_dinov2', pretrained=pretrained, **dict(model_args, **kwargs))
+        'vit_base_patch14_reg4_dinov2', pretrained=False, **dict(model_args, **kwargs))
     return model
 
 
@@ -78,7 +78,7 @@ def vit_large_patch16_v2_224(pretrained: bool = False, **kwargs) -> VisionTransf
         patch_size=16, embed_dim=1024, depth=24, num_heads=16, init_values=1e-5,
         reg_tokens=4, no_embed_class=True, img_size=518 * 16 // 14
     )
-    model = _create_vision_transformer(name, pretrained=pretrained, **dict(model_args, **kwargs))
+    model = _create_vision_transformer(name, pretrained=False, **dict(model_args, **kwargs))
 
     return model
 

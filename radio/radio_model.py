@@ -362,4 +362,9 @@ def create_model_from_args(args) -> nn.Module:
             num_registers=getattr(args, 'cpe_num_registers', None),
         )
 
+    tome_config = getattr(args, 'tome', None)
+    if tome_config is not None:
+        from .tome.timm import apply_patch
+        apply_patch(model, trace_source=True, **tome_config)
+
     return model

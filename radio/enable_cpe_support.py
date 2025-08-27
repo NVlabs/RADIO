@@ -125,6 +125,7 @@ def _enable_cpe_for_timm_vit(model: VisionTransformer,
     model.patch_size = patch_size
     model.num_cls_tokens = num_cls_tokens
     model.num_registers = patch_generator.num_registers
+    model.num_prefix_tokens = patch_generator.num_cls_patches
 
     model.forward_features = MethodType(_forward_cpe, model)
     model.forward_intermediates = MethodType(_forward_intermediates_cpe, model)

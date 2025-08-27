@@ -59,6 +59,31 @@ def radio_model(
         state_dict = chk["state_dict"]
 
     args = chk["args"]
+
+    tome_info = getattr(args, 'tome', None)
+    tome_config = kwargs.get('tome_config', None)
+    if isinstance(tome_config, str):
+        variables = tome_config.split(',')
+        tome_config = {}
+        for variable in variables:
+            name, value = tuple(v.strip() for v in variable.split('='))
+            if name != 'mode':
+                value = float(value)
+            tome_config[name] = value
+    if tome_info is not None:
+        if tome_config is None:
+            tome_config = {'mode': 'DISABLED'}
+        args.tome = tome_config
+    elif tome_config is not None:
+        if not isinstance(tome_config, dict):
+            raise ValueError("`tome_config` must be either a value string (e.g. a=b,c=d) or a dict.")
+
+        mode = str(tome_config.get('mode', 'DISABLED')).upper()
+        if mode == 'DYNAMIC':
+            raise ValueError('The specified radio model doesn\'t support dynamic ToMe inference.')
+        tome_config['disable_dynamic'] = True
+        args.tome = tome_config
+
     mod = create_model_from_args(args)
 
     mod_state_dict = get_prefix_state_dict(state_dict, "base_model.")

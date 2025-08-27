@@ -89,9 +89,13 @@ def main(rank: int = 0, world_size: int = 1):
                         help='Use the huggingface model')
     parser.add_argument('--csv-out', type=str, default=None,
                         help='Append the zero shot score to the specified csv')
+    parser.add_argument('--csv-exp-name', type=str, default=None,
+                        help='Add a name as the first column of the csv')
     parser.add_argument('--templates', default='openai', choices=['openai', 'simple', 'base'],
                         help='Which set of templates to use'
     )
+    parser.add_argument('--tome-config', type=str, default=None,
+                        help='Configure the model with ToMe')
 
     parser.add_argument('--drop-span', type=int, nargs='+', default=None)
     parser.add_argument('--invalidate-cache', default=False, action='store_true')
@@ -101,7 +105,8 @@ def main(rank: int = 0, world_size: int = 1):
     rank_print('Loading model...')
     model, preprocessor, info = load_model(args.model_version, adaptor_names=args.adaptor_name, return_spatial_features=False,
                                            vitdet_window_size=args.vitdet_window_size, force_reload=args.force_reload,
-                                           torchhub_repo=args.torchhub_repo, use_huggingface=args.use_huggingface)
+                                           torchhub_repo=args.torchhub_repo, use_huggingface=args.use_huggingface,
+                                           tome_config=args.tome_config)
     model.to(device=device).eval()
     rank_print('Done')
 
@@ -160,9 +165,13 @@ def main(rank: int = 0, world_size: int = 1):
         for k in (1, 5)
     }
     num_processed = 0
+    start_time = torch.cuda.Event(enable_timing=True)
+    end_time = torch.cuda.Event(enable_timing=True)
     postproc = getattr(model, 'zero_shot_postproc', lambda x: x)
     with torch.inference_mode(), tqdm(total=num_examples, disable=rank > 0) as t:
-        for batches in loader:
+        for i, batches in enumerate(loader):
+            if i == 1:
+                start_time.record()
             for images, targets in batches:
                 images = images.to(device=device, non_blocking=True)
                 targets = targets.to(device=device, non_blocking=True)
@@ -193,6 +202,9 @@ def main(rank: int = 0, world_size: int = 1):
         rank_print('\tDone')
     rank_print('Done')
 
+    end_time.record()
+    elapsed_time_sec = start_time.elapsed_time(end_time) / 1000.0
+
     rank_print(f'Resolution: {args.resolution}')
     rank_print('Accuracy:')
     for k, acc in topks.items():
@@ -202,7 +214,9 @@ def main(rank: int = 0, world_size: int = 1):
 
         if rank == 0 and k == 1 and args.csv_out:
             with open(args.csv_out, 'a') as fd:
-                fd.write(f'{" ".join(str(r) for r in args.resolution)},{acc:.4f}\n')
+                if args.csv_exp_name:
+                    fd.write(f'{args.csv_exp_name},')
+                fd.write(f'{" ".join(str(r) for r in args.resolution)},{acc:.4f},{elapsed_time_sec:.3f}\n')
                 # drop_span = args.drop_span
                 # if not drop_span:
                 #     drop_span = ['baseline', '']
