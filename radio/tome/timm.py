@@ -132,22 +132,58 @@ def _tx_pre_hook(model: VisionTransformer, mode: ToMeMode | str = ToMeMode.DISAB
         """
         model._tome_info["num_input_tokens"] = num_tokens = input[0].shape[1]
 
-        def _get_r(r_pct: float | None = None, final_r: int | None = None, per_r: int | None = None):
+        def _get_r(r_pct: float | None = None, final_r: int | None = None, per_r: int | None = None, num_final: int | None = None):
             r = None
+            num_tokens = input[0].shape[1] - model._tome_info['class_token']
             if r_pct is not None:
-                num_tokens = input[0].shape[1] - model._tome_info['class_token']
                 final_r = int(r_pct * num_tokens)
+
+            if num_final is not None:
+                final_r = num_tokens - num_final
 
             if final_r is not None:
                 all_r = [0]
+                tail = [int(num_tokens - final_r)]
+                for _ in range(len(model.blocks) - 1):
+                    tail.append(tail[-1] * 2)
+                tail.reverse()
+
                 fp_per_r = final_r / (len(model.blocks) - 1)
+
+                leftover = 0
+                first_lo_idx = len(model.blocks) - 1
                 for i in range(1, len(model.blocks)):
                     fp_curr = int(i * fp_per_r)
                     fp_prev = int((i - 1) * fp_per_r)
-                    all_r.append(fp_curr - fp_prev)
-                calc_r = sum(all_r)
-                if calc_r < final_r:
-                    all_r[-1] += final_r - calc_r
+
+                    num_curr = fp_curr - fp_prev
+                    num_possible = tail[i]
+                    if num_curr > num_possible:
+                        curr_leftover = num_curr - num_possible
+                        leftover += curr_leftover
+                        num_curr = num_possible
+                        first_lo_idx = min(first_lo_idx, i)
+                    all_r.append(num_curr)
+
+                placed = True
+                while leftover > 0 and placed:
+                    fp_per_r = leftover / (first_lo_idx - 1)
+                    new_leftover = 0
+                    for i in range(1, first_lo_idx):
+                        fp_curr = int(i * fp_per_r)
+                        fp_prev = int((i - 1) * fp_per_r)
+
+                        num_curr = fp_curr - fp_prev
+                        num_possible = tail[i] - all_r[i]
+                        if num_curr > num_possible:
+                            curr_leftover = num_curr - num_possible
+                            new_leftover += curr_leftover
+                            num_curr = num_possible
+                            first_lo_idx = min(first_lo_idx, i)
+                        all_r[i] += num_curr
+                    placed = new_leftover < leftover
+                    leftover = new_leftover
+
                 r = all_r
 
             if r is None:
@@ -163,7 +199,8 @@ def _tx_pre_hook(model: VisionTransformer, mode: ToMeMode | str = ToMeMode.DISAB
             r_pct = mode_args.get("r_pct", None)
             final_r = mode_args.get("final_r", None)
             per_r = mode_args.get("r", None)
-            r = _get_r(r_pct=r_pct, final_r=final_r, per_r=per_r)
+            num_final = mode_args.get("num_final", None)
+            r = _get_r(r_pct=r_pct, final_r=final_r, per_r=per_r, num_final=num_final)
         elif mode == ToMeMode.DYNAMIC:
             with torch.no_grad():
                 pred_r: torch.Tensor = model.r_predictor(model._tome_info["input_img"])
@@ -176,8 +213,8 @@ def _tx_pre_hook(model: VisionTransformer, mode: ToMeMode | str = ToMeMode.DISAB
             else:
                 pred_r = pred_r[0]
 
-            final_r = (pred_r < loss_threshold).sum().item()
-            r = _get_r(final_r=final_r)
+            r_pct = min((pred_r < loss_threshold).sum().item() / 100, 0.95)
+            r = _get_r(r_pct=r_pct)
         else:
             raise ValueError(f"Unknown ToMe mode {mode}.")
 
@@ -193,8 +230,7 @@ def _input_pre_hook(model: VisionTransformer):
         """
         Forward pre-hook to initialize ToMe info before processing patches.
         """
-        if model.training:
-            model._tome_info["input_img"] = input[0]
+        model._tome_info["input_img"] = input[0]
 
     return patches_forward_pre_hook
 
@@ -313,7 +349,7 @@ def apply_patch(
         "prop_attn": prop_attn,
         "class_token": num_prefix,
         "distill_token": False,
-        "expand": mode_args.get("expand", False),
+        "expand": bool(mode_args.get("expand", False)),
         "rng": rng,
     }
 

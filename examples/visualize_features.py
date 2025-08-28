@@ -110,6 +110,8 @@ def main(rank: int = 0, world_size: int = 1):
                         choices=['sparse', 'dense'])
     parser.add_argument('--interpolation', default='bilinear', type=str, help='Interpolation mode')
     parser.add_argument('--skip', default=0, type=int, help='Skip the first N components')
+    parser.add_argument('--tome-config', type=str, default=None,
+                    help='Configure the model with ToMe')
 
     args, _ = parser.parse_known_args()
 
@@ -126,8 +128,11 @@ def main(rank: int = 0, world_size: int = 1):
                 print(f'Using "{chk_path}" as model version.')
                 break
 
+    if args.tome_config and 'expand' not in args.tome_config:
+            args.tome_config += ',expand=1'
+
     model, preprocessor, info = load_model(args.model_version, vitdet_window_size=args.vitdet_window_size, adaptor_names=args.adaptor_name,
-                                           torchhub_repo=args.torchhub_repo)
+                                           torchhub_repo=args.torchhub_repo, tome_config=args.tome_config)
     model.to(device=device).eval()
     if isinstance(preprocessor, nn.Module):
         preprocessor.to(device).eval()

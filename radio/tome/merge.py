@@ -44,6 +44,7 @@ def bipartite_soft_matching(
 
     # We can only reduce by a maximum of 50% tokens
     t = metric.shape[1]
+    r_orig = r
     r = min(r, (t - num_protected) // 2)
 
     if r <= 0:

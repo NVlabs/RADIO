@@ -168,9 +168,13 @@ def main(rank: int = 0, world_size: int = 1):
     start_time = torch.cuda.Event(enable_timing=True)
     end_time = torch.cuda.Event(enable_timing=True)
     postproc = getattr(model, 'zero_shot_postproc', lambda x: x)
+
+    total_tokens = torch.tensor(0, device=device, dtype=torch.float64)
     with torch.inference_mode(), tqdm(total=num_examples, disable=rank > 0) as t:
         for i, batches in enumerate(loader):
             if i == 1:
+                if world_size > 1:
+                    dist.barrier()
                 start_time.record()
             for images, targets in batches:
                 images = images.to(device=device, non_blocking=True)
@@ -178,8 +182,12 @@ def main(rank: int = 0, world_size: int = 1):
 
                 with torch.autocast(device.type, dtype=torch.bfloat16, enabled=args.amp):
                     output = model(images)
-                    summary = output[args.adaptor_name].summary
+                    ada_output = output[args.adaptor_name]
+                    summary = ada_output.summary
                     summary = F.normalize(summary, dim=-1)
+
+                    features = ada_output.features
+                    total_tokens += features.shape[0] * features.shape[1]
 
                     logits = summary.to(classifier.dtype) @ classifier
                     logits = postproc(logits)
@@ -196,13 +204,18 @@ def main(rank: int = 0, world_size: int = 1):
         rank_print('\tWaiting for all ranks to complete...')
         num_processed = torch.tensor(num_processed, device=device)
         dist.reduce(num_processed, dst=0, op=dist.ReduceOp.SUM)
+        dist.reduce(total_tokens, dst=0, op=dist.ReduceOp.SUM)
 
         for k, acc in topks.items():
             dist.reduce(acc, dst=0, op=dist.ReduceOp.SUM)
         rank_print('\tDone')
     rank_print('Done')
 
+    avg_tokens = (total_tokens / num_processed).item()
+    rank_print(f'Average Tokens per Image: {avg_tokens:.2f}')
+
     end_time.record()
+    end_time.synchronize()
     elapsed_time_sec = start_time.elapsed_time(end_time) / 1000.0
 
     rank_print(f'Resolution: {args.resolution}')
@@ -216,7 +229,7 @@ def main(rank: int = 0, world_size: int = 1):
             with open(args.csv_out, 'a') as fd:
                 if args.csv_exp_name:
                     fd.write(f'{args.csv_exp_name},')
-                fd.write(f'{" ".join(str(r) for r in args.resolution)},{acc:.4f},{elapsed_time_sec:.3f}\n')
+                fd.write(f'{" ".join(str(r) for r in args.resolution)},{acc:.4f},{elapsed_time_sec:.3f},{avg_tokens:.3f}\n')
                 # drop_span = args.drop_span
                 # if not drop_span:
                 #     drop_span = ['baseline', '']
