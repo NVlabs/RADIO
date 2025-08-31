@@ -127,7 +127,7 @@ def radio_model(
             if t.get('use_summary', True):
                 name = t['name']
                 if name not in name_to_idx_map:
-                    name_to_idx_map[name] = i
+                    name_to_idx_map[name] = min(z for z, t2 in enumerate(chk['args'].teachers) if t2['name'] == name)
         summary_idxs = torch.tensor(sorted(name_to_idx_map.values()), dtype=torch.int64)
     else:
         summary_idxs = torch.tensor([0], dtype=torch.int64)

@@ -265,6 +265,8 @@ def main(rank: int = 0, world_size: int = 1):
                 cv2.imwrite(f'{dirs["sbs"]}/vis_{ctr}.jpg', op)
                 ctr += 1
 
+    model.model.r_predictor.finish_debug(preprocessor)
+
 
 def get_robust_pca(features: torch.Tensor, m: float = 2, remove_first_component=False, skip: int = 0):
     # features: (N, C)

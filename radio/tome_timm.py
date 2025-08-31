@@ -26,14 +26,15 @@ from einops import rearrange
 import numpy as np
 import torch
 import torch.distributed as dist
+from torchvision.utils import save_image
 from torch import nn
 from torch.nn import functional as F
 from torch.nn.init import trunc_normal_, xavier_uniform_
 from timm.models.convnext import convnext_pico, ConvNeXt
 from timm.models.vision_transformer import Attention, Block, VisionTransformer
 
-from .merge import bipartite_soft_matching, merge_source, merge_wavg
-from .utils import parse_r
+from .tome_merge import bipartite_soft_matching, merge_source, merge_wavg
+from .tome_utils import parse_r
 
 
 class ToMeMode(Enum):
@@ -125,6 +126,8 @@ def _tx_pre_hook(model: VisionTransformer, mode: ToMeMode | str = ToMeMode.DISAB
     if isinstance(mode, str):
         mode = ToMeMode[mode.upper()]
 
+    inf_idx = [0]
+
     def blocks_forward_pre_hook(module, input):
         """
         Forward pre-hook to initialize ToMe info before processing blocks.
@@ -193,6 +196,9 @@ def _tx_pre_hook(model: VisionTransformer, mode: ToMeMode | str = ToMeMode.DISAB
 
             return r
 
+        curr_idx = inf_idx[0]
+        inf_idx[0] += input[0].shape[0]
+
         if mode == ToMeMode.DISABLED:
             r = 0
         elif mode == ToMeMode.CONSTANT:
@@ -207,19 +213,32 @@ def _tx_pre_hook(model: VisionTransformer, mode: ToMeMode | str = ToMeMode.DISAB
             loss_threshold = mode_args.get("loss_threshold", None)
             if loss_threshold is None:
                 raise ValueError("For dynamic inference r, provide loss_threshold.")
-            if input[0].shape[0] != 1:
-                warnings.warn("Dynamic ToMe works best when the batch size is 1. When larger, the average r over the batch is used.")
-                pred_r = pred_r.mean(dim=0)
-            else:
-                pred_r = pred_r[0]
 
-            r_pct = min((pred_r < loss_threshold).sum().item() / 100, 0.95)
+            r_pct = (pred_r < loss_threshold).sum(dim=1, dtype=torch.float32) / pred_r.shape[1]
+            r_pct.clamp_max_(0.95)
+
+            if model._tome_info["verbose"]:
+                for i in range(pred_r.shape[0]):
+                    # print(f"Dynamic ToMe [{curr_idx}] - pred-loss {i} - r-pct: {r_pct[i].item():.3f}, Losses: {', '.join(f'{v:.3f}' for v in pred_r[i].tolist())}")
+                    print(f"Dynamic ToMe [{curr_idx + i}] - pred-loss: {pred_r[i, 0].item():.3f} - r-pct: {r_pct[i].item():.3f}")
+
+            if r_pct.shape[0] > 1:
+                warnings.warn("Dynamic ToMe works best when the batch size is 1. When larger, the minimum r_pct over the batch is used.")
+                r_pct = r_pct.amin(dim=0).item()
+            else:
+                r_pct = r_pct[0].item()
+
             r = _get_r(r_pct=r_pct)
         else:
             raise ValueError(f"Unknown ToMe mode {mode}.")
 
         model._tome_info["r"] = parse_r(len(model.blocks), r)
         model._tome_info["final_r"] = sum(model._tome_info["r"])
+
+        if model._tome_info["verbose"]:
+            # print(f'ToMe [{curr_idx}] - num-tokens: {num_tokens}, r-per-block: {model._tome_info["r"]}, final-r: {model._tome_info["final_r"]}')
+            print(f'ToMe [{curr_idx}] - num-tokens: {num_tokens}, final-r: {model._tome_info["final_r"]}, leftover: {num_tokens - model._tome_info["final_r"]}')
+
         model._tome_info["size"] = None
         model._tome_info["source"] = None
     return blocks_forward_pre_hook
@@ -259,7 +278,7 @@ class PowerBeta(nn.Module):
 
 
 class PredictorNet(nn.Module):
-    def __init__(self, num_output_slots: int = 100):
+    def __init__(self, num_output_slots: int = 100, debug: bool = False):
         super().__init__()
 
         self.base: ConvNeXt = convnext_pico(pretrained=True)
@@ -282,13 +301,18 @@ class PredictorNet(nn.Module):
             if p.dim() > 1 and not n.startswith('base'):
                 xavier_uniform_(p)
 
+        self.pos_buffer = nn.Parameter(torch.zeros(1, self.base.num_features, 16, 16))
         self.mom_beta = ConstantBeta(beta=0.95, num_betas=num_output_slots)
         self.register_buffer('expected_loss', torch.zeros(num_output_slots, dtype=torch.float32))
         self.step_ct = 0
 
+        self.debug = debug
+        if debug:
+            self._debug_info = []
+
     def forward(self, x):
-        x = F.interpolate(x, size=(384, 384), mode='bilinear', align_corners=False)
-        y = self.base.forward_features(x)
+        x = F.interpolate(x, size=(512, 512), mode='bilinear', align_corners=False)
+        y = self.base.forward_features(x) + self.pos_buffer
         y = rearrange(y, 'b c h w -> b (h w) c')
 
         pe_tgt = self.pos.expand(y.shape[0], -1, -1)  # (batch_size, seq_len, 256)
@@ -297,8 +321,24 @@ class PredictorNet(nn.Module):
         y = self.proj(y)[..., 0]
         y = F.softplus(y)  # Ensure positive values for gradient norms
         y = torch.cumsum(y, dim=1)  # Enforce monotonic increase (more tokens dropped = higher loss)
+
+        if self.debug:
+            for y_l, x_l in zip(y, x):
+                self._debug_info.append((y_l[-1].item(), x_l.cpu()))
+
         return y
 
+    def finish_debug(self, normalizer):
+        if not self.debug:
+            return
+
+        self._debug_info.sort(key=lambda v: v[0])
+
+        images = torch.stack(list(v[1] for v in self._debug_info))
+
+        images = images * normalizer.norm_std.cpu() + normalizer.norm_mean.cpu()
+
+        save_image(images, 'pnet_order.jpg', nrow=8)
 
 def _tx_post_hook(model: VisionTransformer):
     def blocks_forward_post_hook(module, input, output):
@@ -351,13 +391,14 @@ def apply_patch(
         "distill_token": False,
         "expand": bool(mode_args.get("expand", False)),
         "rng": rng,
+        "verbose": bool(mode_args.get("verbose", False)),
     }
 
     if hasattr(model, "dist_token") and model.dist_token is not None:
         model._tome_info["distill_token"] = True
 
     if not disable_dynamic:
-        model.r_predictor = PredictorNet()
+        model.r_predictor = PredictorNet(debug=bool(mode_args.get("debug", False)))
 
     model.patch_generator.register_forward_pre_hook(_input_pre_hook(model))
     # Register the pre-hook on the blocks module
