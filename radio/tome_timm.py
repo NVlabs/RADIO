@@ -20,7 +20,7 @@ from enum import Enum
 import sys
 import warnings
 import debugpy
-from typing import Tuple
+from typing import Tuple, Union
 
 from einops import rearrange
 import numpy as np
@@ -122,7 +122,7 @@ class ToMeAttention(Attention):
         return x, k.mean(1)
 
 
-def _tx_pre_hook(model: VisionTransformer, mode: ToMeMode | str = ToMeMode.DISABLED, **mode_args):
+def _tx_pre_hook(model: VisionTransformer, mode: Union[ToMeMode, str] = ToMeMode.DISABLED, **mode_args):
     if isinstance(mode, str):
         mode = ToMeMode[mode.upper()]
 

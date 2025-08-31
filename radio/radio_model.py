@@ -363,7 +363,7 @@ def create_model_from_args(args) -> nn.Module:
         )
 
     tome_config = getattr(args, 'tome', None)
-    if tome_config is not None:
+    if tome_config is not None and tome_config != 0:
         from .tome_timm import apply_patch
         apply_patch(model, trace_source=True, **tome_config)
 

@@ -70,7 +70,7 @@ def radio_model(
             if name != 'mode':
                 value = float(value)
             tome_config[name] = value
-    if tome_info is not None:
+    if tome_info is not None and tome_info != 0:
         if tome_config is None:
             tome_config = {'mode': 'DISABLED'}
         args.tome = tome_config
