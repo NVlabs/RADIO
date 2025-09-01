@@ -35,6 +35,7 @@ from timm.models.vision_transformer import Attention, Block, VisionTransformer
 
 from .tome_merge import bipartite_soft_matching, merge_source, merge_wavg
 from .tome_utils import parse_r
+from PIL import Image, ImageDraw, ImageFont
 
 
 class ToMeMode(Enum):
@@ -332,13 +333,50 @@ class PredictorNet(nn.Module):
         if not self.debug:
             return
 
+        import torchvision.transforms.functional as TF
+
         self._debug_info.sort(key=lambda v: v[0])
 
         images = torch.stack(list(v[1] for v in self._debug_info))
-
         images = images * normalizer.norm_std.cpu() + normalizer.norm_mean.cpu()
 
-        save_image(images, 'pnet_order.jpg', nrow=8)
+        # Try to use a default font, fallback to default if not available
+        try:
+            font = ImageFont.truetype("OpenSans-VariableFont_wdth,wght.ttf", 42)
+        except:
+            font = ImageFont.load_default()
+
+        # Convert to PIL images and add text overlay
+        annotated_images = []
+        for i, (pred_loss, _) in enumerate(self._debug_info):
+            # Convert tensor to PIL Image
+            img_tensor = images[i].clamp(0, 1)
+            pil_img = TF.to_pil_image(img_tensor)
+
+            # Create a drawing context
+            draw = ImageDraw.Draw(pil_img)
+
+            # Add text with background for better visibility
+            text = f"{pred_loss:.3f}"
+            bbox = draw.textbbox((7, 7), text, font=font)
+            text_width = bbox[2] - bbox[0]
+            text_height = bbox[3] - bbox[1]
+
+            # Draw background rectangle
+            draw.rectangle(bbox, fill='black')
+            # Draw text
+            draw.text((7, 7), text, fill='white', font=font)
+
+            # Convert back to tensor
+            annotated_tensor = TF.to_tensor(pil_img)
+            annotated_images.append(annotated_tensor)
+
+        # Stack annotated images
+        annotated_images = torch.stack(annotated_images)
+
+        print(f'Pred Losses: {", ".join(f"{v[0]:.3f}" for v in self._debug_info)}')
+
+        save_image(annotated_images, 'pnet_order.jpg', nrow=8)
 
 def _tx_post_hook(model: VisionTransformer):
     def blocks_forward_post_hook(module, input, output):
