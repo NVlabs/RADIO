@@ -38,5 +38,5 @@ def enable_damp(model: nn.Module, std: float):
 
 def configure_damp_from_args(model: nn.Module, args):
     damp = getattr(args, 'damp', None)
-    if damp:
+    if damp is not None:
         enable_damp(model, damp)

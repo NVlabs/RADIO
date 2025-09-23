@@ -17,6 +17,7 @@
 # --------------------------------------------------------
 
 from enum import Enum
+import os
 import sys
 import warnings
 import debugpy
@@ -63,8 +64,10 @@ class ToMeBlock(Block):
         x_attn, metric = self.attn(self.norm1(x), attn_size)
         x = x + self._drop_path1(self.ls1(x_attn))
 
-        r = self._tome_info["r"].pop(0)
-        if r > 0:
+        r = self._tome_info["r"]
+        if isinstance(r, list) and r:
+            r = r.pop(0)
+        if r:
             # Apply ToMe here
             merge, _ = bipartite_soft_matching(
                 metric,
@@ -216,7 +219,7 @@ def _tx_pre_hook(model: VisionTransformer, mode: Union[ToMeMode, str] = ToMeMode
                 raise ValueError("For dynamic inference r, provide loss_threshold.")
 
             r_pct = (pred_r < loss_threshold).sum(dim=1, dtype=torch.float32) / pred_r.shape[1]
-            r_pct.clamp_max_(0.95)
+            r_pct.clamp_max_(0.99)
 
             if model._tome_info["verbose"]:
                 for i in range(pred_r.shape[0]):
@@ -239,6 +242,9 @@ def _tx_pre_hook(model: VisionTransformer, mode: Union[ToMeMode, str] = ToMeMode
         if model._tome_info["verbose"]:
             # print(f'ToMe [{curr_idx}] - num-tokens: {num_tokens}, r-per-block: {model._tome_info["r"]}, final-r: {model._tome_info["final_r"]}')
             print(f'ToMe [{curr_idx}] - num-tokens: {num_tokens}, final-r: {model._tome_info["final_r"]}, leftover: {num_tokens - model._tome_info["final_r"]}')
+
+        if model.r_predictor.debug:
+            model.r_predictor._realized.append((num_tokens, model._tome_info["final_r"]))
 
         model._tome_info["size"] = None
         model._tome_info["source"] = None
@@ -291,7 +297,7 @@ class PredictorNet(nn.Module):
         self.tx = nn.TransformerDecoder(
             nn.TransformerDecoderLayer(d_model=self.base.num_features, nhead=8, dim_feedforward=self.base.num_features * 4, dropout=0.0,
                                        batch_first=True, norm_first=True),
-            num_layers=2,
+            num_layers=3,
         )
         self.proj = nn.Sequential(
             nn.LayerNorm(self.base.num_features),
@@ -309,7 +315,9 @@ class PredictorNet(nn.Module):
 
         self.debug = debug
         if debug:
+            self.register_buffer('_debug_pred', torch.zeros_like(self.expected_loss))
             self._debug_info = []
+            self._realized = []
 
     def forward(self, x):
         x = F.interpolate(x, size=(512, 512), mode='bilinear', align_corners=False)
@@ -324,12 +332,13 @@ class PredictorNet(nn.Module):
         y = torch.cumsum(y, dim=1)  # Enforce monotonic increase (more tokens dropped = higher loss)
 
         if self.debug:
+            self._debug_pred += y.detach().sum(dim=0)
             for y_l, x_l in zip(y, x):
                 self._debug_info.append((y_l[-1].item(), x_l.cpu()))
 
         return y
 
-    def finish_debug(self, normalizer):
+    def finish_debug(self, base_path: str, normalizer):
         if not self.debug:
             return
 
@@ -376,7 +385,21 @@ class PredictorNet(nn.Module):
 
         print(f'Pred Losses: {", ".join(f"{v[0]:.3f}" for v in self._debug_info)}')
 
-        save_image(annotated_images, 'pnet_order.jpg', nrow=8)
+        dataset_loss = self._debug_pred / len(self._debug_info)
+        print('Average losses:')
+        for i, l in enumerate(dataset_loss.tolist()):
+            print(f'  Slot {i:02d}: {l:.3f}')
+
+        total_num_tokens, total_reduced = 0, 0
+        for num_tokens, num_reduced in self._realized:
+            total_num_tokens += num_tokens
+            total_reduced += num_reduced
+
+        compression_rate = total_reduced / total_num_tokens
+
+        print(f'Compression Rate: {compression_rate * 100:.2f}%')
+
+        save_image(annotated_images, os.path.join(base_path, 'pnet_order.jpg'), nrow=8)
 
 def _tx_post_hook(model: VisionTransformer):
     def blocks_forward_post_hook(module, input, output):
@@ -420,7 +443,7 @@ def apply_patch(
 
     model.r = 0
     model._tome_info = {
-        "r": model.r,
+        "r": [],
         "size": None,
         "source": None,
         "trace_source": trace_source,
