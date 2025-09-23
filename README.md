@@ -42,6 +42,8 @@ Loadable via torchhub (e.g. `model_version='c-radio_v3-h'`) or from HuggingFace:
 - [C-RADIOv3-H](https://huggingface.co/nvidia/C-RADIOv3-H)
 - [C-RADIOv3-g](https://huggingface.co/nvidia/C-RADIOv3-g)
 
+Now, also supported as a [Foundation Model in TAO Toolkit](https://docs.nvidia.com/tao/tao-toolkit/text/foundation_models/overview.html)!
+
 ---
 
 
