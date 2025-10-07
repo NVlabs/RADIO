@@ -19,7 +19,7 @@ from . import eradio_model
 from .enable_spectral_reparam import configure_spectral_reparam_from_args
 from .feature_normalizer import FeatureNormalizer, IntermediateFeatureNormalizer
 from . import dual_hybrid_vit
-
+from .radio1d import RADIO1D
 
 class Resolution(NamedTuple):
     height: int
@@ -37,6 +37,7 @@ class RADIOModel(nn.Module):
         summary_idxs: Optional[torch.Tensor] = None,
         window_size: int = None,
         adaptors: Dict[str, AdaptorBase] = None,
+        neck_name: Optional[str] = None,
         feature_normalizer: Optional[FeatureNormalizer] = None,
         inter_feature_normalizer: Optional[IntermediateFeatureNormalizer] = None,
     ):
@@ -53,7 +54,7 @@ class RADIOModel(nn.Module):
         self._patch_size = patch_size
         self._max_resolution = max_resolution
         self._window_size = window_size
-
+        self._neck_name = neck_name
         adaptors = adaptors or dict()
         self.adaptors = nn.ModuleDict(adaptors)
 
@@ -177,23 +178,35 @@ class RADIOModel(nn.Module):
         '''
         return self.model.cpe_video_mode(t)
 
-    def forward(self, x: torch.Tensor, feature_fmt: str = 'NLC') -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
+    def forward(self, x: torch.Tensor, feature_fmt: str = 'NLC', num_tokens: Optional[int] = None) -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
         '''
         Forward process for model.
         Args:
             x: Input tensor. Unless `make_preprocessor_external` has been called, then the dynamic range of `x` is expected to be `[0, 1]`,
                              otherwise `x` is expected to be mean centered with unit standard deviation.
             feature_format: ['NLC', 'NCHW'] - The output format for the features.
+            num_tokens: Number of tokens to use for the model.
         '''
         res_step = self.min_resolution_step
         if res_step is not None and (x.shape[-2] % res_step != 0 or x.shape[-1] % res_step != 0):
-            raise ValueError('The input resolution must be a multiple of `self.min_resolution_step`. '
+            raise ValueError(f'The input resolution must be a multiple of `self.min_resolution_step={res_step}`. '
                              '`self.get_nearest_supported_resolution(<height>, <width>) is provided as a convenience API. '
                              f'Input: {x.shape[-2:]}, Nearest: {self.get_nearest_supported_resolution(*x.shape[-2:])}')
 
         x = self.input_conditioner(x)
-        y = self.model.forward_features(x)
-        ret = self._extract_final(x, y, feature_fmt=feature_fmt)
+        if num_tokens is not None:
+            y = self.model.forward_features(x, num_tokens=num_tokens)
+        else:
+            y = self.model.forward_features(x)
+        if self._neck_name is not None:
+            if not self._neck_name in y:
+                raise ValueError(f"Neck {self._neck_name} not found in model. Available necks: {y.keys()}")
+            self._cache_y = y
+            y = y[self._neck_name]
+        if isinstance(y, dict):
+            ret = {k: self._extract_final(x, v, feature_fmt=feature_fmt) for k, v in y.items()}
+        else:
+            ret = self._extract_final(x, y, feature_fmt=feature_fmt)
         return ret
 
     def _extract_final(self, x: torch.Tensor, y: torch.Tensor, feature_fmt: str = 'NLC'):

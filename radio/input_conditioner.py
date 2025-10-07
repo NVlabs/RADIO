@@ -34,6 +34,10 @@ class InputConditioner(nn.Module):
             y = y.to(self.dtype)
         return y
 
+    def backward(self, x: torch.Tensor):
+        y = x * self.norm_std + self.norm_mean
+        return y.to(self.dtype)
+
 
 def get_default_conditioner():
     from timm.data.constants import OPENAI_CLIP_MEAN, OPENAI_CLIP_STD

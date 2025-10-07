@@ -7,7 +7,7 @@
 # license agreement from NVIDIA CORPORATION is strictly prohibited.
 
 from contextlib import contextmanager
-from typing import List, Optional, Set, Tuple, Union
+from typing import Callable, List, Mapping,Optional, Set, Tuple, Union
 from types import MethodType
 
 import torch
@@ -21,6 +21,7 @@ from .extra_models import DinoWrapper
 from .vit_patch_generator import ViTPatchGenerator
 from .forward_intermediates import forward_intermediates
 from .dual_hybrid_vit import HybridModel
+from .radio1d import RADIO1D
 
 
 def _forward_cpe(self: VisionTransformer, x: torch.Tensor) -> torch.Tensor:
@@ -87,6 +88,7 @@ def _forward_intermediates_cpe_dinov2(self: DinoWrapper, *args, **kwargs):
 
 
 def _enable_cpe_for_timm_vit(model: VisionTransformer,
+                             forward_fn: Callable,
                              max_img_size: Union[int, Tuple[int, int]] = 1024,
                              num_cls_tokens: int = 1,
                              pos_dropout: float = 0.1,
@@ -126,7 +128,7 @@ def _enable_cpe_for_timm_vit(model: VisionTransformer,
     model.num_cls_tokens = num_cls_tokens
     model.num_registers = patch_generator.num_registers
 
-    model.forward_features = MethodType(_forward_cpe, model)
+    model.forward_features = MethodType(forward_fn, model)
     model.forward_intermediates = MethodType(_forward_intermediates_cpe, model)
 
 
@@ -175,8 +177,11 @@ def enable_cpe(model: nn.Module,
                *args,
                **kwargs,
 ):
-    if isinstance(model, VisionTransformer):
-        _enable_cpe_for_timm_vit(model, *args, **kwargs)
+    if isinstance(model, RADIO1D):
+        # RADIO1D already handles CPE enabling internally
+        pass
+    elif isinstance(model, VisionTransformer):
+        _enable_cpe_for_timm_vit(model, _forward_cpe, *args, **kwargs)
     elif isinstance(model, DinoWrapper):
         _enable_cpe_for_dv2_reg_vit(model, *args, **kwargs)
     elif isinstance(model, HybridModel):
