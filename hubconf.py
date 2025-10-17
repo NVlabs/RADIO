@@ -91,7 +91,7 @@ def radio_model(
     if args.spectral_reparam:
         configure_spectral_reparam_from_args(mod, args, state_dict_guidance=mod_state_dict)
 
-    if getattr(args, 'damp', None):
+    if getattr(args, 'damp', None) is not None:
         configure_damp_from_args(mod, args)
 
     state_dict = clean_state_dict(state_dict)
