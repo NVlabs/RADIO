@@ -49,7 +49,7 @@ Now, also supported as a [Foundation Model in TAO Toolkit](https://docs.nvidia.c
 
 ## News/Release
 
-- [11.26.2025] [RADSeg](https://arxiv.org/abs/2511.19704): Shout out to Alama et al. who have pushed RADIO even further in the domain of Open Vocabulary Semantic Segmentation in both 2D and 3D domain. 
+- [11.26.2025] [RADSeg](https://arxiv.org/abs/2511.19704): Shout out to Alama, Jariwala, Bhattacharya et al. who have pushed RADIO even further in the domain of Open Vocabulary Semantic Segmentation in both 2D and 3D domain. 
 - [6.25.2025] [FeatSharp](https://github.com/NVlabs/FeatSharp) code is now available! We used this to train all of the C-RADIOv3 models, and also the C-RADIOv2-VLM model that's powering Llama Nemotron Nano VL 8B, currently \#1 on [OCR Bench v2](https://ling99-ocrbench-v2-leaderboard.hf.space/).
 - [6.3.2025] 🔥🔥🔥 C-RADIOv3 has been released. These are [commercially viable models](https://developer.download.nvidia.com/licenses/nvidia-open-model-license-agreement-june-2024.pdf), and also represent our strongest models to date!
   - Can be loaded using TorchHub, or:
