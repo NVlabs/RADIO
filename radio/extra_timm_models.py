@@ -82,6 +82,21 @@ def vit_large_patch16_v2_224(pretrained: bool = False, **kwargs) -> VisionTransf
 
     return model
 
+
+@register_model
+def vit_so400m_patch16_224(pretrained=False, **kwargs) -> VisionTransformer:
+    """ ViT model matching the architecture of the So400M model from
+    "Scaling Vision Transformers to 400 Million Parameters" (https://arxiv.org/abs/2302.05442).
+    """
+    if pretrained:
+        raise ValueError('There is no pretrained weights for vit_so400m_patch16_224')
+    mlp_ratio = 4304 / 1152
+
+    model_args = dict(patch_size=16, embed_dim=1152, depth=27, num_heads=18, mlp_ratio=mlp_ratio)
+    model = _create_vision_transformer('vit_so400m_patch16_224', pretrained=pretrained, **dict(model_args, **kwargs))
+    return model
+
+
 @register_model
 def vit_huge_patch16_224(pretrained=False, **kwargs) -> VisionTransformer:
     """ ViT-Huge model (ViT-H/16) from original paper (https://arxiv.org/abs/2010.11929).

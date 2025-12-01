@@ -7,6 +7,7 @@
 # license agreement from NVIDIA CORPORATION is strictly prohibited.
 import argparse
 from collections import defaultdict
+from functools import partial
 from hashlib import sha256
 import inspect
 import math
@@ -35,7 +36,9 @@ BASE_IMAGENET_TEMPLATES = (
     lambda c: f'an image of a {c}.',
 )
 
-from common import collate, round_up, get_standard_transform, get_rank, get_world_size, barrier, rank_print, load_model
+from common import collate, round_up, get_standard_transform, get_rank, get_world_size, barrier, rank_print as _rank_print, load_model
+
+rank_print = partial(_rank_print, file=sys.stderr)
 
 
 def main(rank: int = 0, world_size: int = 1):
@@ -326,7 +329,7 @@ if __name__ == '__main__':
     rank = 0
     world_size = 1
 
-    if 'WORLD_SIZE' in os.environ and '--help' not in sys.argv:
+    if int(os.environ.get('WORLD_SIZE', 1)) > 1 and '--help' not in sys.argv:
         dist.init_process_group(backend='nccl')
         rank = dist.get_rank()
         world_size = dist.get_world_size()

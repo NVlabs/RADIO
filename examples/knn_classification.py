@@ -7,8 +7,10 @@
 # license agreement from NVIDIA CORPORATION is strictly prohibited.
 import argparse
 from collections import defaultdict
+from functools import partial
 import math
 import os
+import sys
 from PIL import Image
 from tqdm import tqdm
 from typing import Any, Dict, Iterable, List, Tuple
@@ -23,7 +25,9 @@ from datasets import load_dataset_builder, load_dataset
 from datasets.iterable_dataset import DistributedConfig
 from datasets.distributed import split_dataset_by_node
 
-from common import collate, round_up, get_standard_transform, run_rank_0_first, rank_print, load_model
+from common import collate, round_up, get_standard_transform, run_rank_0_first, rank_print as _rank_print, load_model
+
+rank_print = partial(_rank_print, file=sys.stderr)
 
 
 def main(rank: int = 0, world_size: int = 1):
@@ -87,6 +91,8 @@ def main(rank: int = 0, world_size: int = 1):
     )
     parser.add_argument('--use-huggingface', default=False, action='store_true',
                         help='Use the huggingface model')
+    parser.add_argument('--csv-out', type=str, default=None,
+                        help='Append the kNN accuracy to the specified csv')
 
     args, _ = parser.parse_known_args()
 
@@ -178,6 +184,10 @@ def main(rank: int = 0, world_size: int = 1):
     accuracy = 100 * knn_top1.item() / total_num_eval.item()
 
     rank_print(f'Accuracy: {accuracy:.3f}%')
+
+    if rank == 0 and args.csv_out:
+        with open(args.csv_out, 'a') as fd:
+            fd.write(f'{" ".join(str(r) for r in args.resolution)},{accuracy:.4f}\n')
 
 
 def _get_vote_cls(sim: torch.Tensor, labels: torch.Tensor, num_classes: int):

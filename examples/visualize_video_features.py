@@ -20,6 +20,7 @@ import cv2
 import numpy as np
 import torch
 from torch import nn
+from torch.nn import functional as F
 from torchvision.io import read_video, write_video
 
 from einops import rearrange
@@ -76,6 +77,8 @@ def main(rank: int = 0, world_size: int = 1):
     parser.add_argument('--video-codec', default='libx264', type=str, help='The video codec to use')
     parser.add_argument('--batch-size', type=int, default=16, help='The processing batch size')
     parser.add_argument('--force-reload', default=False, action='store_true', help='Reload the torch.hub codebase')
+    parser.add_argument('--crf', type=int, default=30, help='The CRF to use for the output video (lower is better quality)')
+    parser.add_argument('--output-scale', type=float, default=1.0, help='Scale the output video size by the provided factor')
 
     args, _ = parser.parse_known_args()
 
@@ -139,9 +142,16 @@ def main(rank: int = 0, world_size: int = 1):
     sub_features = all_features[::kf_stride]
     pca_stats = get_robust_pca(sub_features.flatten(0, 2))
 
+    print(f'Output Size: {tx_frames.shape[-2:]}')
+    output_size = tuple(int(round(s * args.output_scale)) for s in tx_frames.shape[-2:])
+    print(f'Scaled Output Size: {output_size}')
+
+    if args.output_scale != 1.0:
+        tx_frames = F.interpolate(tx_frames, size=output_size, mode='bilinear', align_corners=False)
+
     output_frames = []
     for raw_frame, features in zip(tx_frames, all_features):
-        pca_features = torch.from_numpy(get_pca_map(features, raw_frame.shape[-2:], pca_stats=pca_stats, interpolation='bilinear'))
+        pca_features = torch.from_numpy(get_pca_map(features, output_size, pca_stats=pca_stats, interpolation='nearest'))
 
         if args.side_by_side:
             raw_frame = raw_frame.permute(1, 2, 0).cpu()
@@ -163,11 +173,11 @@ def main(rank: int = 0, world_size: int = 1):
         os.makedirs(dirname, exist_ok=True)
 
     options = {
-        'crf': '18',  # Lower CRF for better quality
+        'crf': str(args.crf),  # Lower CRF for better quality
         'preset': 'slow',  # Use a slower preset for better compression efficiency
         'profile': 'high',  # Use high profile for advanced features
     }
-    write_video(args.output, output_frames, input_video[2]['video_fps'], video_codec=args.video_codec, options=options, **extra_args)
+    write_video(args.output, output_frames, int(round(input_video[2]['video_fps'])), video_codec=args.video_codec, options=options, **extra_args)
 
 
 if __name__ == '__main__':
