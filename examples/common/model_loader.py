@@ -34,13 +34,14 @@ def dv2_sdpa(self, x: torch.Tensor) -> torch.Tensor:
 
 
 class DinoWrapper(nn.Module):
-    def __init__(self, dino_model: nn.Module):
+    def __init__(self, dino_model: nn.Module, patch_attn: bool = True):
         super().__init__()
         self.inner = dino_model
-        for n, m in self.inner.named_modules():
-            if n.endswith('.attn'):
-                m.old_forward = m.forward
-                m.forward = MethodType(dv2_sdpa, m)
+        if patch_attn:
+            for n, m in self.inner.named_modules():
+                if n.endswith('.attn'):
+                    m.old_forward = m.forward
+                    m.forward = MethodType(dv2_sdpa, m)
 
     @property
     def patch_size(self):
@@ -366,6 +367,18 @@ def load_model(version: str, adaptor_names: str = None, use_huggingface: bool = 
 
         preprocessor = InputConditioner(1.0, IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD)
         info = ModelInfo(model_class='DINOv2', model_subtype=version.replace('dinov2_', ''))
+    elif version.startswith('dinov3'):
+        _, chk_path = version.split(',')
+        fname = os.path.basename(chk_path)
+        model_version = fname[:fname.index('_pretrain')]
+        model: nn.Module = torch.hub.load('facebookresearch/dinov3', model_version, pretrained=False)
+
+        chk = torch.load(chk_path, map_location='cpu')
+        model.load_state_dict(chk, strict=True)
+        model = DinoWrapper(model, patch_attn=False)
+
+        preprocessor = InputConditioner(1.0, IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD)
+        info = ModelInfo(model_class='DINOv3', model_subtype=model_version.replace('dinov3_', ''))
     elif version.startswith('open_clip'):
         import open_clip
         _, model_arch, pretrained = version.split(',')
