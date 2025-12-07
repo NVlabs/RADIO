@@ -55,6 +55,7 @@ def radio_model(
     if "state_dict_ema" in chk:
         state_dict = chk["state_dict_ema"]
         chk['args'].spectral_reparam = False
+        chk['args'].damp = None
     else:
         state_dict = chk["state_dict"]
 
