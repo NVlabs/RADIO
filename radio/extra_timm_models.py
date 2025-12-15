@@ -92,7 +92,7 @@ def vit_so400m_patch16_224(pretrained=False, **kwargs) -> VisionTransformer:
         raise ValueError('There is no pretrained weights for vit_so400m_patch16_224')
     mlp_ratio = 4304 / 1152
 
-    model_args = dict(patch_size=16, embed_dim=1152, depth=27, num_heads=18, mlp_ratio=mlp_ratio)
+    model_args = dict(patch_size=16, embed_dim=1152, depth=27, num_heads=16, mlp_ratio=mlp_ratio)
     model = _create_vision_transformer('vit_so400m_patch16_224', pretrained=pretrained, **dict(model_args, **kwargs))
     return model
 
