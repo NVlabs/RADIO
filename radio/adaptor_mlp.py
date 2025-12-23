@@ -17,10 +17,22 @@ from timm.models.vision_transformer import Block
 from .enable_spectral_reparam import disable_spectral_reparam, enable_spectral_reparam
 
 
-class MLP(nn.Module):
+class MLPBase(nn.Module):
+    def __init__(
+        self,
+        requires_summary_and_spatial: bool,
+        handles_summary_and_spatial: bool = False
+    ) -> None:
+        super().__init__()
+        self.requires_summary_and_spatial = requires_summary_and_spatial
+        self.handles_summary_and_spatial = handles_summary_and_spatial
+
+        assert not handles_summary_and_spatial or requires_summary_and_spatial, "If handles summary and spatial, must require it too!"
+
+class MLP(MLPBase):
     def __init__(self, input_size: int, hidden_size: int, output_size: int,
                  num_inner: int = 0, device: torch.device = None, **kwargs):
-        super(MLP, self).__init__()
+        super(MLP, self).__init__(requires_summary_and_spatial=False)
         self.fc1 = nn.Linear(input_size, hidden_size, device=device)
         self.norm = nn.LayerNorm(hidden_size, device=device)
         self.relu = nn.ReLU()
@@ -48,7 +60,7 @@ class MLP(nn.Module):
         return x
 
 
-class MLP2(nn.Module):
+class MLP2(MLPBase):
     def __init__(self, input_size: int, hidden_size: int, output_size: int,
                  num_inner: int = 0,
                  pre_norm: bool = False, device: torch.device = None,
@@ -56,7 +68,7 @@ class MLP2(nn.Module):
                  upsample_rank: int = None,
                  from_config: bool = False,
                  **kwargs):
-        super().__init__()
+        super().__init__(requires_summary_and_spatial=False)
 
         self.pre_norm = nn.Sequential(
             nn.LayerNorm(input_size),
@@ -108,9 +120,44 @@ class MLP2(nn.Module):
         return x
 
 
-MLP_FACTORY = {
+class AttnFDHead(MLPBase):
+    def __init__(
+        self,
+        input_size: int,
+        hidden_size: int,
+        output_size: int,
+        num_inner: int = 0,
+        pre_norm: bool = False,
+        device: torch.device = None,
+        upsample_factor: int = 1,
+        upsample_rank: int = 0,
+        **kwargs  # Ignore kwargs that might be to other "mlp" verions, e.g. teacher_summary_idxs
+    ) -> None:
+        super().__init__(requires_summary_and_spatial=False)
+        from timm.models.vision_transformer import Block
+        self.blocks = nn.Sequential(*[
+            Block(input_size, num_heads=16, init_values=1e-5)
+            for _ in range(2)
+        ])
+        self.mlp = MLP2(input_size, hidden_size, output_size,
+                        num_inner=0, pre_norm=pre_norm, device=device,
+                        upsample_factor=upsample_factor, upsample_rank=upsample_rank, **kwargs)
+
+    def forward(self, x: torch.Tensor, **kwargs) -> torch.Tensor:
+        x = self.blocks(x)
+        x = self.mlp(x)
+        return x
+
+
+MLP_SUMMARY_FACTORY = {
     'v1': MLP,
     'v2': MLP2,
+}
+
+MLP_FD_FACTORY = {
+    'v1': MLP,
+    'v2': MLP2,
+    'attn': AttnFDHead,
 }
 
 
@@ -144,25 +191,30 @@ def get_mlp_info_from_state(version: str, state: Dict[str, torch.Tensor], prefix
             k = f'blocks.{num_inner}.0.weight'
             if k not in state:
                 break
+    elif version == 'attn':
+        hidden_dim, input_dim = state[f'mlp.fc1.{weight_suffix}'].shape
+        output_dim = state[f'mlp.final.2.{weight_suffix}'].shape[0]
+        num_inner = 0
     else:
         raise ValueError(f'Unsupported MLP version: {version}')
 
     return input_dim, hidden_dim, output_dim, num_inner
 
 
-def create_mlp_from_config(version: str, input_dim: int, hidden_dim: int, output_dim: int, num_inner: int, **kwargs):
-    ret: nn.Module = MLP_FACTORY[version](input_dim, hidden_dim, output_dim, num_inner, from_config=True, **kwargs)
+def create_mlp_from_config(version: str, input_dim: int, hidden_dim: int, output_dim: int, num_inner: int, is_summary: bool = True, **kwargs):
+    factory = MLP_SUMMARY_FACTORY if is_summary else MLP_FD_FACTORY
+
+    ret: nn.Module = factory[version](input_dim, hidden_dim, output_dim, num_inner, from_config=True, **kwargs)
 
     return ret
 
 
-def create_mlp_from_state(version: str, state: Dict[str, torch.Tensor], prefix: str = '', spectral_weights: bool = False, **kwargs):
+def create_mlp_from_state(version: str, state: Dict[str, torch.Tensor], prefix: str = '', spectral_weights: bool = False, is_summary: bool = True, **kwargs):
     state = strip_prefix(state, prefix)
 
     input_dim, hidden_dim, output_dim, num_inner = get_mlp_info_from_state(version, state, spectral_weights=spectral_weights)
 
-    ret: nn.Module = create_mlp_from_config(version, input_dim, hidden_dim, output_dim, num_inner, **kwargs)
-
+    ret: nn.Module = create_mlp_from_config(version, input_dim, hidden_dim, output_dim, num_inner, is_summary=is_summary, **kwargs)
     if spectral_weights:
         enable_spectral_reparam(ret, init_norm_to_current=False, state_dict_guidance=state)
 

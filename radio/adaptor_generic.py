@@ -19,12 +19,17 @@ class GenericAdaptor(AdaptorBase):
     def __init__(self, main_config: Namespace, adaptor_config, state, mlp_config=None):
         super().__init__()
 
+        summary_mlp_version = main_config.mlp_version
+        feature_mlp_version = getattr(main_config, 'spatial_mlp_version', None) or summary_mlp_version
+
         extra_args = dict()
         ups = None
         ups_rank = None
         if adaptor_config is not None:
             ups = adaptor_config.get('fd_upsample_factor', None)
             ups_rank = adaptor_config.get('fd_upsample_rank', None)
+            summary_mlp_version = adaptor_config.get('mlp_version', summary_mlp_version)
+            feature_mlp_version = adaptor_config.get('spatial_mlp_version', feature_mlp_version)
         elif mlp_config is not None:
             ups = mlp_config["feature"].get('upsample_factor', None)
             ups_rank = mlp_config["feature"].get('upsample_rank', None)
@@ -34,24 +39,26 @@ class GenericAdaptor(AdaptorBase):
 
         if state is not None:
             spectral_heads = getattr(main_config, 'spectral_heads', False)
-            self.head_mlp = create_mlp_from_state(main_config.mlp_version, state, 'summary.', spectral_weights=spectral_heads)
-            self.feat_mlp = create_mlp_from_state(main_config.mlp_version, state, 'feature.', spectral_weights=spectral_heads, **extra_args)
+            self.head_mlp = create_mlp_from_state(summary_mlp_version, state, 'summary.', spectral_weights=spectral_heads, is_summary=True)
+            self.feat_mlp = create_mlp_from_state(feature_mlp_version, state, 'feature.', spectral_weights=spectral_heads, is_summary=False, **extra_args)
         else:
             assert mlp_config is not None, "Config must not be None if state is None"
 
             self.head_mlp =  create_mlp_from_config(
-                main_config.mlp_version,
+                summary_mlp_version,
                 mlp_config["summary"]["input_dim"],
                 mlp_config["summary"]["hidden_dim"],
                 mlp_config["summary"]["output_dim"],
                 mlp_config["summary"]["num_inner"],
+                is_summary=True,
             )
             self.feat_mlp = create_mlp_from_config(
-                main_config.mlp_version,
+                feature_mlp_version,
                 mlp_config["feature"]["input_dim"],
                 mlp_config["feature"]["hidden_dim"],
                 mlp_config["feature"]["output_dim"],
                 mlp_config["feature"]["num_inner"],
+                is_summary=False,
                 **extra_args
             )
 
