@@ -98,6 +98,26 @@ def vit_so400m_patch16_224(pretrained=False, **kwargs) -> VisionTransformer:
 
 
 @register_model
+def vit_so400m_v2_patch16_224(pretrained=False, **kwargs) -> VisionTransformer:
+    """ ViT model matching the architecture of the So400M model from
+    "Scaling Vision Transformers to 400 Million Parameters" (https://arxiv.org/abs/2302.05442).
+    """
+    if pretrained:
+        raise ValueError('There is no pretrained weights for vit_so400m_patch16_224')
+
+    normal_target = 4304
+    # TP4 requires channels to be a multiple of 4, and then within that, FP8 requires a multiple of 8,
+    # thus, a multiple of 32 is required.
+    tp4_fp8_safe_target = ((normal_target + 31) // 32) * 32
+
+    mlp_ratio = tp4_fp8_safe_target / 1152
+
+    model_args = dict(patch_size=16, embed_dim=1152, depth=27, num_heads=16, mlp_ratio=mlp_ratio)
+    model = _create_vision_transformer('vit_so400m_v2_patch16_224', pretrained=pretrained, **dict(model_args, **kwargs))
+    return model
+
+
+@register_model
 def vit_huge_patch16_224(pretrained=False, **kwargs) -> VisionTransformer:
     """ ViT-Huge model (ViT-H/16) from original paper (https://arxiv.org/abs/2010.11929).
     """
