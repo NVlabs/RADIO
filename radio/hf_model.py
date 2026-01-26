@@ -30,6 +30,7 @@ from .adaptor_registry import adaptor_registry
 from .cls_token import ClsToken
 from .dinov2_arch import dinov2_vitg14_reg
 from .enable_cpe_support import enable_cpe
+from .enable_damp import configure_damp_from_args
 from .enable_spectral_reparam import configure_spectral_reparam_from_args
 from .eradio_model import eradio
 from .feature_normalizer import FeatureNormalizer, IntermediateFeatureNormalizer
@@ -38,12 +39,15 @@ from .radio_model import create_model_from_args
 from .radio_model import RADIOModel as RADIOModelBase, Resolution
 from .input_conditioner import get_default_conditioner, InputConditioner
 from .open_clip_adaptor import OpenCLIP_RADIO
+from .siglip2_adaptor import SigLIP2Adaptor
 from .vit_patch_generator import ViTPatchGenerator
 from .vitdet import apply_vitdet_arch, VitDetArgs
 
 # Register extra models
-from .extra_timm_models import *
-from .extra_models import *
+from . import extra_timm_models
+from . import extra_models
+# from .extra_timm_models import *
+# from .extra_models import *
 
 
 class RADIOConfig(PretrainedConfig):

@@ -102,6 +102,8 @@ def main():
         state_dict = checkpoint["state_dict_ema"]
         # Disable spectral reparametrization for EMA model.
         model_args.spectral_reparam = False
+        model_args.spectral_heads = False
+        model_args.damp = None
     else:
         state_dict = checkpoint["state_dict"]
     state_dict = clean_state_dict(state_dict)

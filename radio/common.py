@@ -143,6 +143,24 @@ RESOURCE_MAP = {
         preferred_resolution=Resolution(512, 512),
         supports_vitdet=False,
     ),
+    "c-radio_v4-so400m": RadioResource(
+        # NOTE: C-RADIO models are bound by different license terms than that present in the LICENSE file.
+        # Please refer to the readme, or to https://huggingface.co/nvidia/C-RADIOv4-SO400M for more information.
+        "https://huggingface.co/nvidia/C-RADIOv4-SO400M/resolve/main/c-radio-v4-so400m_half.pth.tar?download=true",
+        patch_size=16,
+        max_resolution=2048,
+        preferred_resolution=Resolution(512, 512),
+        supports_vitdet=False,
+    ),
+    "c-radio_v4-h": RadioResource(
+        # NOTE: C-RADIO models are bound by different license terms than that present in the LICENSE file.
+        # Please refer to the readme, or to https://huggingface.co/nvidia/C-RADIOv4-H for more information.
+        "https://huggingface.co/nvidia/C-RADIOv4-H/resolve/main/c-radio_v4-h_half.pth.tar?download=true",
+        patch_size=16,
+        max_resolution=2048,
+        preferred_resolution=Resolution(512, 512),
+        supports_vitdet=False,
+    ),
 }
 
-DEFAULT_VERSION = "c-radio_v3-h"
+DEFAULT_VERSION = "c-radio_v4-h"
