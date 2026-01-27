@@ -41,9 +41,90 @@ C-RADIOv4 Model Family ([Commercially Permissive](https://developer.download.nvi
 
 We've updated our teacher set to \[SigLIP2-g-384, DINOv3-7B, SAM3\], along with some other things, and the result is our strongest set of models to date. See our [tech report](https://arxiv.org/abs/2601.17237) for more details.
 
-Loadable via torchhub (e.g. `model_version='c-radio_v4-h'`) or from HuggingFace:
+Loadable via torchhub (e.g. `model_version='c-radio_v4-h'` or `model_version='c-radio_v4-so400m'`) or from HuggingFace:
 - [C-RADIOv4-SO400M](https://huggingface.co/nvidia/C-RADIOv4-SO400M)
 - [C-RADIOv4-H](https://huggingface.co/nvidia/C-RADIOv4-H)
+
+```Python
+from PIL import Image
+
+import torch
+from torch.nn import functional as F
+from torchvision.transforms.functional import pil_to_tensor
+model_version="c-radio_v4-h" # for C-RADIOv3-H model (ViT-H/16)
+model = torch.hub.load('NVlabs/RADIO', 'radio_model', version=model_version, progress=True, skip_validation=True)
+model.cuda().eval()
+
+x = Image.open('assets/cradio_v4.png').convert('RGB')
+x = pil_to_tensor(x).to(dtype=torch.float32, device='cuda')
+x.div_(255.0)  # RADIO expects the input values to be between 0 and 1
+x = x.unsqueeze(0) # Add a batch dimension
+
+#### Example 1 ####
+# Regular Usage
+###################
+nearest_res = model.get_nearest_supported_resolution(*x.shape[-2:])
+x = F.interpolate(x, nearest_res, mode='bilinear', align_corners=False)
+
+# RADIO expects the input to have values between [0, 1]. It will automatically normalize them to have mean 0 std 1.
+summary, spatial_features = model(x)
+
+#### Example 2 ####
+# Returning features in NCHW format, for easier spatial handling
+###################
+
+# By default, RADIO will return the spatial_features in NLC format, with L being a combined height/width dimension.
+# You can alternatively ask for the features in the more computer-vision-convenient format NCHW the following way:
+summary, spatial_features = model(x, feature_fmt='NCHW')
+assert spatial_features.ndim == 4
+
+#### Example 3 ####
+# AMP autocasting (mixed precision, critical for fast performance with self attention)
+###################
+
+# RADIO also supports running in mixed precision:
+with torch.autocast('cuda', dtype=torch.bfloat16):
+    summary, spatial_features = model(x)
+
+#### Example 4 ####
+# Decoupled input normalization
+###################
+
+# If you'd rather pre-normalize the inputs, then you can do this:
+conditioner = model.make_preprocessor_external()
+
+# Now, the model won't change the inputs, and it's up to the user to call `cond_x = conditioner(x)` before
+# calling `model(cond_x)`. You most likely would do this if you want to move the conditioning into your
+# existing data processing pipeline.
+with torch.autocast('cuda', dtype=torch.bfloat16):
+    cond_x = conditioner(x)
+    summary, spatial_features = model(cond_x)
+
+#### Example 5 ####
+# Teacher adaptors, e.g. for text alignment
+###################
+
+# Adaptors
+# One or more may be specified via the `adaptor_names` argument
+model = torch.hub.load('NVlabs/RADIO', 'radio_model', version=model_version, progress=True, skip_validation=True, adaptor_names=['siglip2-g'])
+model.cuda().eval()
+
+vis_output = model(x)
+# These are the usual RADIO features
+backbone_summary, backbone_features = vis_output['backbone']
+# There will also be summary and feature pairs for each of the loaded adaptors
+sig2_vis_summary, sig2_vis_features = vis_output['siglip2-g']
+
+# The 'siglip2-g' and 'clip' adaptors (when available) are special because they also support text tokenization and encoding
+sig2_adaptor = model.adaptors['siglip2-g']
+text_input = sig2_adaptor.tokenizer(['An image of an alien wearing headphones, with three orbs floating overhead']).to('cuda')
+text_tokens = sig2_adaptor.encode_text(text_input, normalize=True)
+
+sim = F.cosine_similarity(sig2_vis_summary, text_tokens)
+print(sim)
+```
+
+We also demonstrate how to use C-RADIOv4 to replace the vision encoder in SAM3 here: https://github.com/mranzinger/sam3-radio/blob/main/demo_sam3_radio.py
 
 ## Older Models
 
@@ -114,53 +195,7 @@ The C-RADIO (stands for Commercial RADIO) family of models are trained using dif
 
 To load in the TorchHub, use the following command:
 
-```Python
-from PIL import Image
 
-import torch
-from torch.nn import functional as F
-from torchvision.transforms.functional import pil_to_tensor
-#model_version="c-radio_v3-g" # for C-RADIOv3-g model (ViT-H/14)
-model_version="c-radio_v3-h" # for C-RADIOv3-H model (ViT-H/16)
-# model_version="c-radio_v3-l" # for C-RADIOv3-L model (ViT-L/16)
-#model_version="c-radio_v3-b" # for C-RADIOv3-B model (ViT-B/16)
-#model_version="e-radio_v2" # for E-RADIO
-model = torch.hub.load('NVlabs/RADIO', 'radio_model', version=model_version, progress=True, skip_validation=True)
-model.cuda().eval()
-
-x = Image.open('assets/radio_overview_github.png').convert('RGB')
-x = pil_to_tensor(x).to(dtype=torch.float32, device='cuda')
-x.div_(255.0)  # RADIO expects the input values to be between 0 and 1
-x = x.unsqueeze(0) # Add a batch dimension
-
-nearest_res = model.get_nearest_supported_resolution(*x.shape[-2:])
-x = F.interpolate(x, nearest_res, mode='bilinear', align_corners=False)
-
-if "e-radio" in model_version:
-    model.model.set_optimal_window_size(x.shape[2:]) #where it expects a tuple of (height, width) of the input image.
-
-# RADIO expects the input to have values between [0, 1]. It will automatically normalize them to have mean 0 std 1.
-summary, spatial_features = model(x)
-
-# By default, RADIO will return the spatial_features in NLC format, with L being a combined height/width dimension.
-# You can alternatively ask for the features in the more computer-vision-convenient format NCHW the following way:
-summary, spatial_features = model(x, feature_fmt='NCHW')
-assert spatial_features.ndim == 4
-
-# RADIO also supports running in mixed precision:
-with torch.autocast('cuda', dtype=torch.bfloat16):
-    summary, spatial_features = model(x)
-
-# If you'd rather pre-normalize the inputs, then you can do this:
-conditioner = model.make_preprocessor_external()
-
-# Now, the model won't change the inputs, and it's up to the user to call `cond_x = conditioner(x)` before
-# calling `model(cond_x)`. You most likely would do this if you want to move the conditioning into your
-# existing data processing pipeline.
-with torch.autocast('cuda', dtype=torch.bfloat16):
-    cond_x = conditioner(x)
-    summary, spatial_features = model(cond_x)
-```
 
 For the previous version, use `radio_v1`, `radio_v2`, `radio_v2.1`, or `eradio_v1` for the E-RADIO model.
 
