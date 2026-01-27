@@ -1,5 +1,6 @@
 [![Star on GitHub](https://img.shields.io/github/stars/NVlabs/RADIO.svg?style=social)](https://github.com/NVlabs/RADIO/stargazers)
 [![License](https://img.shields.io/badge/license-NC-blue.svg)](LICENSE)
+[![Paper](https://img.shields.io/badge/CRADIOv4-arXiv.2601.17237-red.svg)](https://arxiv.org/abs/2601.17237)
 [![Paper](https://img.shields.io/badge/FeatSharp-ICML.2025-purple.svg)](https://openreview.net/pdf?id=lioemOcq3H)
 [![Paper](https://img.shields.io/badge/FeatSharp-arXiv.2502.16025-purple.svg)](https://arxiv.org/abs/2412.07679)
 [![Paper](https://img.shields.io/badge/RADIOv2.5-CVPR.2025-green.svg)](https://openaccess.thecvf.com/content/CVPR2025/papers/Heinrich_RADIOv2.5_Improved_Baselines_for_Agglomerative_Vision_Foundation_Models_CVPR_2025_paper.pdf)
@@ -11,7 +12,7 @@
 # \[CVPR 2024, 2025\] AM-RADIO: Agglomerative Vision Foundation Model - Reduce All Domains Into One
 
 <!-- <div align="left"> -->
-<img src="assets/radio.png" width="256" align="right">
+<img src="assets/cradio_v4.png" width="256" align="right">
 <!-- </div> -->
 
 Official PyTorch implementation of \[CVPR 2025\] [**RADIOv2.5: Improved Baselines for Agglomerative Vision Foundation Models**](https://arxiv.org/abs/2412.07679)
@@ -28,11 +29,23 @@ Mike Ranzinger, Greg Heinrich, [Jan Kautz](https://jankautz.com/), [Pavlo Molcha
 
 For business inquiries, please visit our website and submit the form: [NVIDIA Research Licensing](https://www.nvidia.com/en-us/research/inquiries/)
 
+\[[C-RADIOv4 Tech Report](https://arxiv.org/abs/2601.17237)\]
+
 \[[RADIOv2.5](https://arxiv.org/abs/2412.07679)\]\[[FeatSharp](https://www.arxiv.org/abs/2502.16025)\]\[[PHI-S](https://arxiv.org/abs/2410.01680)\]\[[AM-RADIO](https://arxiv.org/abs/2312.06709)\]\[[BibTex](#citing-radio)\]
 
 <br clear="left"/>
 
 ## Latest Models
+
+C-RADIOv4 Model Family ([Commercially Permissive](https://developer.download.nvidia.com/licenses/nvidia-open-model-license-agreement-june-2024.pdf))
+
+We've updated our teacher set to \[SigLIP2-g-384, DINOv3-7B, SAM3\], along with some other things, and the result is our strongest set of models to date. See our [tech report](https://arxiv.org/abs/2601.17237) for more details.
+
+Loadable via torchhub (e.g. `model_version='c-radio_v4-h'`) or from HuggingFace:
+- [C-RADIOv4-SO400M](https://huggingface.co/nvidia/C-RADIOv4-SO400M)
+- [C-RADIOv4-H](https://huggingface.co/nvidia/C-RADIOv4-H)
+
+## Older Models
 
 C-RADIOv3 Model Family ([Commercially Permissive](https://developer.download.nvidia.com/licenses/nvidia-open-model-license-agreement-june-2024.pdf))
 
@@ -49,7 +62,7 @@ Now, also supported as a [Foundation Model in TAO Toolkit](https://docs.nvidia.c
 
 ## News/Release
 
-- [11.26.2025] [RADSeg](https://arxiv.org/abs/2511.19704): Shout out to Alama, Jariwala, Bhattacharya et al. who have pushed RADIO even further in the domain of Open Vocabulary Semantic Segmentation in both the 2D and 3D domains. They've strongly set the SOTA, both in raw metrics, and especially on pareto, running significantly faster than nearby competitors. 
+- [11.26.2025] [RADSeg](https://arxiv.org/abs/2511.19704): Shout out to Alama, Jariwala, Bhattacharya et al. who have pushed RADIO even further in the domain of Open Vocabulary Semantic Segmentation in both the 2D and 3D domains. They've strongly set the SOTA, both in raw metrics, and especially on pareto, running significantly faster than nearby competitors.
 - [6.25.2025] [FeatSharp](https://github.com/NVlabs/FeatSharp) code is now available! We used this to train all of the C-RADIOv3 models, and also the C-RADIOv2-VLM model that's powering Llama Nemotron Nano VL 8B, currently \#1 on [OCR Bench v2](https://ling99-ocrbench-v2-leaderboard.hf.space/).
 - [6.3.2025] 🔥🔥🔥 C-RADIOv3 has been released. These are [commercially viable models](https://developer.download.nvidia.com/licenses/nvidia-open-model-license-agreement-june-2024.pdf), and also represent our strongest models to date!
   - Can be loaded using TorchHub, or:
