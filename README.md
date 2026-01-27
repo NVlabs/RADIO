@@ -52,7 +52,9 @@ import torch
 from torch.nn import functional as F
 from torchvision.transforms.functional import pil_to_tensor
 model_version="c-radio_v4-h" # for C-RADIOv3-H model (ViT-H/16)
-model = torch.hub.load('NVlabs/RADIO', 'radio_model', version=model_version, progress=True, skip_validation=True)
+# NOTE: `force_reload` will re-download the source code too. If you have used our TorchHub in the past, we strongly recommend
+# running with this flag once to pull the latest code.
+model = torch.hub.load('NVlabs/RADIO', 'radio_model', version=model_version, progress=True, skip_validation=True, force_reload=True)
 model.cuda().eval()
 
 x = Image.open('assets/cradio_v4.png').convert('RGB')
