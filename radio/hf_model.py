@@ -25,7 +25,9 @@ from .common import RESOURCE_MAP, DEFAULT_VERSION
 # Import all required modules.
 from .adaptor_base import AdaptorBase, RadioOutput, AdaptorInput
 from .adaptor_generic import GenericAdaptor, AdaptorBase
-from .adaptor_mlp import create_mlp_from_config
+from .adaptor_module_factory import create_mlp_from_config
+from .adaptor_mlp import MLP, MLP2
+from .adaptor_attn import AttnFDHead
 from .adaptor_registry import adaptor_registry
 from .cls_token import ClsToken
 from .dinov2_arch import dinov2_vitg14_reg

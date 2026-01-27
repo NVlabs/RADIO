@@ -20,7 +20,7 @@ import torch
 from hubconf import get_prefix_state_dict
 from radio.adaptor_base import RadioOutput
 from radio.adaptor_registry import adaptor_registry
-from radio.adaptor_mlp import get_mlp_info_from_state
+from radio.adaptor_module_factory import get_mlp_info_from_state
 from radio.hf_model import RADIOConfig, RADIOModel
 from test_hf import deterministic_grid_init
 

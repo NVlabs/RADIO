@@ -32,6 +32,19 @@ class RadioOutput(NamedTuple):
         )
 
 
+class AdaptorModuleBase(nn.Module):
+    def __init__(
+        self,
+        requires_summary_and_spatial: bool,
+        handles_summary_and_spatial: bool = False
+    ) -> None:
+        super().__init__()
+        self.requires_summary_and_spatial = requires_summary_and_spatial
+        self.handles_summary_and_spatial = handles_summary_and_spatial
+
+        assert not handles_summary_and_spatial or requires_summary_and_spatial, "If handles summary and spatial, must require it too!"
+
+
 class AdaptorBase(nn.Module):
     def forward(self, input: AdaptorInput) -> RadioOutput:
         raise NotImplementedError("Subclasses must implement this!")
