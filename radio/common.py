@@ -146,7 +146,7 @@ RESOURCE_MAP = {
     "c-radio_v4-so400m": RadioResource(
         # NOTE: C-RADIO models are bound by different license terms than that present in the LICENSE file.
         # Please refer to the readme, or to https://huggingface.co/nvidia/C-RADIOv4-SO400M for more information.
-        "https://huggingface.co/nvidia/C-RADIOv4-SO400M/resolve/main/c-radio-v4-so400m_half.pth.tar?download=true",
+        "https://huggingface.co/nvidia/C-RADIOv4-SO400M/resolve/main/c-radio_v4-so400m_half.pth.tar?download=true",
         patch_size=16,
         max_resolution=2048,
         preferred_resolution=Resolution(512, 512),

@@ -44,10 +44,8 @@ from .vit_patch_generator import ViTPatchGenerator
 from .vitdet import apply_vitdet_arch, VitDetArgs
 
 # Register extra models
-from . import extra_timm_models
-from . import extra_models
-# from .extra_timm_models import *
-# from .extra_models import *
+from .extra_timm_models import *
+from .extra_models import *
 
 
 class RADIOConfig(PretrainedConfig):
