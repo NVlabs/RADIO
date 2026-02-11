@@ -101,6 +101,8 @@ class RADIOModel(PreTrainedModel):
 
     def __init__(self, config: RADIOConfig):
         super().__init__(config)
+        if hasattr(super(), "post_init"):
+            super().post_init()
 
         RADIOArgs = namedtuple("RADIOArgs", config.args.keys())
         args = RADIOArgs(**config.args)

@@ -46,5 +46,9 @@ class AdaptorModuleBase(nn.Module):
 
 
 class AdaptorBase(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.head_idx = 0
+
     def forward(self, input: AdaptorInput) -> RadioOutput:
         raise NotImplementedError("Subclasses must implement this!")

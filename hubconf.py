@@ -55,6 +55,7 @@ def radio_model(
     if "state_dict_ema" in chk:
         state_dict = chk["state_dict_ema"]
         chk['args'].spectral_reparam = False
+        chk['args'].spectral_heads = False
         chk['args'].damp = None
     else:
         state_dict = chk["state_dict"]
@@ -141,7 +142,13 @@ def radio_model(
                 adaptor_state['feature' + k[len(pf_name_feat):]] = v
 
         adaptor = adaptor_registry.create_adaptor(ttype, chk["args"], tconf, adaptor_state)
-        adaptor.head_idx = tidx if cls_token_per_teacher else 0
+
+        if cls_token_per_teacher:
+            token_slot = tconf.get('token_slot', tidx)
+        else:
+            token_slot = 0
+
+        adaptor.head_idx = token_slot
         adaptors[adaptor_name] = adaptor
 
     feat_norm_sd = get_prefix_state_dict(state_dict, '_feature_normalizer.')
