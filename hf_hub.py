@@ -119,6 +119,7 @@ def main():
     elif isinstance(adaptor_names, str):
         adaptor_names = [adaptor_names]
 
+    cls_token_per_teacher = getattr(model_args, 'cls_token_per_teacher', True)
 
     # We need to extract the teacher configurations and adaptor states
     # from the checkpoint.
@@ -152,7 +153,6 @@ def main():
         adaptor_states[adaptor_name] = adaptor_state
 
         adaptor_config = dict()
-        adaptor_config["head_idx"] = tidx
 
         input_dim, hidden_dim, output_dim, num_inner = get_mlp_info_from_state(
             model_args.mlp_version, adaptor_state, "summary."
@@ -173,6 +173,12 @@ def main():
         adaptor_config["feature"]["num_inner"] = num_inner
         adaptor_config["feature"]["upsample_factor"] = tconf.get("fd_upsample_factor", 1)
         adaptor_config["feature"]["upsample_rank"] = tconf.get("fd_upsample_rank", None)
+
+        if cls_token_per_teacher:
+            token_slot = tconf.get('token_slot', tidx)
+        else:
+            token_slot = 0
+        adaptor_config["head_idx"] = token_slot
 
         adaptor_configs[adaptor_name] = adaptor_config
 
