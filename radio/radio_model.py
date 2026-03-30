@@ -19,6 +19,7 @@ from . import eradio_model
 from .enable_spectral_reparam import configure_spectral_reparam_from_args
 from .feature_normalizer import FeatureNormalizer, IntermediateFeatureNormalizer
 from . import dual_hybrid_vit
+from . import vision_transformer_navit
 
 
 class Resolution(NamedTuple):
@@ -256,7 +257,14 @@ class RADIOModel(nn.Module):
                         summary = all_summary[:, adaptor.head_idx]
                 else:
                     summary = all_summary
-                ada_input = AdaptorInput(images=x, summary=summary.float(), features=all_feat, feature_fmt=feature_fmt, patch_size=self.patch_size)
+                ada_input = AdaptorInput(
+                    images=x,
+                    summary=summary.float(),
+                    features=all_feat,
+                    feature_fmt=feature_fmt,
+                    patch_size=self.patch_size,
+                    patch_shape=tuple(d // self.patch_size for d in x.shape[-2:]),
+                )
                 v = adaptor(ada_input).to(torch.float32)
                 ret[name] = v
 
