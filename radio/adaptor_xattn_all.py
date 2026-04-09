@@ -94,12 +94,15 @@ class VarlenRoPEXBlock(nn.Module):
         self,
         dim: int,
         num_heads: int,
-        self_attn_rope: RoPE2D,
+        self_attn_rope: Optional[RoPE2D],
         cross_attn_rope: RoPE2D,
         mlp_ratio: float = 4.0,
         qkv_bias: bool = True,
         proj_drop: float = 0.0,
         init_values: Optional[float] = None,
+        allow_self_attn: bool = True,
+        qk_norm: bool = False,
+        self_attn_kernel_size: Optional[int] = None,
     ):
         super().__init__()
         self.dim = dim
@@ -109,14 +112,19 @@ class VarlenRoPEXBlock(nn.Module):
         mlp_dim = int(dim * mlp_ratio)
 
         # Self-attention on target (uses VarlenRoPEAttention)
-        self.self_attn_norm = nn.LayerNorm(dim)
-        self.self_attn = VarlenRoPEAttention(
-            dim=dim,
-            num_heads=num_heads,
-            rope=self_attn_rope,
-            qkv_bias=qkv_bias,
-            proj_drop=proj_drop,
-        )
+        self.allow_self_attn = allow_self_attn
+        if allow_self_attn:
+            assert self_attn_rope is not None, "self_attn_rope must be provided when allow_self_attn=True"
+            self.self_attn_norm = nn.LayerNorm(dim)
+            self.self_attn = VarlenRoPEAttention(
+                dim=dim,
+                num_heads=num_heads,
+                rope=self_attn_rope,
+                qkv_bias=qkv_bias,
+                proj_drop=proj_drop,
+                qk_norm=qk_norm,
+                self_attn_kernel_size=self_attn_kernel_size,
+            )
 
         # Cross-attention
         self.cross_attn_norm = nn.LayerNorm(dim)
@@ -127,6 +135,7 @@ class VarlenRoPEXBlock(nn.Module):
             rope=cross_attn_rope,
             qkv_bias=qkv_bias,
             proj_drop=proj_drop,
+            qk_norm=qk_norm,
         )
 
         # MLP
@@ -137,7 +146,8 @@ class VarlenRoPEXBlock(nn.Module):
             nn.Linear(mlp_dim, dim),
         )
 
-        self.self_attn_ls = LayerScale(dim, init_values) if init_values is not None else nn.Identity()
+        if allow_self_attn:
+            self.self_attn_ls = LayerScale(dim, init_values) if init_values is not None else nn.Identity()
         self.cross_attn_ls = LayerScale(dim, init_values) if init_values is not None else nn.Identity()
         self.mlp_ls = LayerScale(dim, init_values) if init_values is not None else nn.Identity()
 
@@ -154,9 +164,10 @@ class VarlenRoPEXBlock(nn.Module):
         memory_key_padding_mask: Optional[Tensor] = None,
     ) -> Tensor:
         # Self-attention on target
-        tgt_normed = self.self_attn_norm(tgt)
-        self_attn_out = self.self_attn(tgt_normed, position_ids=tgt_position_ids, attn_info=self_attn_info)
-        tgt = tgt + self.dropout(self.self_attn_ls(self_attn_out))
+        if self.allow_self_attn:
+            tgt_normed = self.self_attn_norm(tgt)
+            self_attn_out = self.self_attn(tgt_normed, position_ids=tgt_position_ids, attn_info=self_attn_info)
+            tgt = tgt + self.dropout(self.self_attn_ls(self_attn_out))
 
         # Cross-attention
         tgt_normed = self.cross_attn_norm(tgt)
@@ -204,6 +215,9 @@ class XAttnAllAdaptor(AdaptorModuleBase):
         feature_dim: int | None = None,
         init_values: Optional[float] = -1234,
         student_depth: int | None = None,
+        allow_self_attn: bool = True,
+        qk_norm: bool = False,
+        self_attn_kernel_size: Optional[int] = None,
         **kwargs  # Ignore kwargs that might be to other "mlp" versions, e.g. teacher_summary_idxs
     ) -> None:
         super().__init__(requires_summary_and_spatial=True, handles_summary_and_spatial=True)
@@ -218,11 +232,15 @@ class XAttnAllAdaptor(AdaptorModuleBase):
         self.num_heads = num_heads
         self.head_dim = input_size // num_heads
         self.scale = self.head_dim ** -0.5
+        self.self_attn_kernel_size = self_attn_kernel_size
 
         feature_dim = feature_dim or output_size
 
+        self.allow_self_attn = allow_self_attn
+
         # Separate RoPE2D instances for self-attention and cross-attention (for caching)
-        self.self_attn_rope = RoPE2D(self.head_dim, base=rope_base, rope_fraction=rope_fraction)
+        if allow_self_attn:
+            self.self_attn_rope = RoPE2D(self.head_dim, base=rope_base, rope_fraction=rope_fraction)
         self.cross_attn_rope = RoPE2D(self.head_dim, base=rope_base, rope_fraction=rope_fraction)
 
         # Cross-attention layers using shared RoPE instances
@@ -230,12 +248,15 @@ class XAttnAllAdaptor(AdaptorModuleBase):
             VarlenRoPEXBlock(
                 dim=input_size,
                 num_heads=num_heads,
-                self_attn_rope=self.self_attn_rope,
+                self_attn_rope=self.self_attn_rope if allow_self_attn else None,
                 cross_attn_rope=self.cross_attn_rope,
                 mlp_ratio=4.0,
                 qkv_bias=True,
                 proj_drop=0.0,
                 init_values=init_values,
+                allow_self_attn=allow_self_attn,
+                qk_norm=qk_norm,
+                self_attn_kernel_size=self_attn_kernel_size,
             )
             for _ in range(num_layers)
         ])
@@ -298,8 +319,10 @@ class XAttnAllAdaptor(AdaptorModuleBase):
         # https://proceedings.neurips.cc/paper_files/paper/2022/file/ae0cba715b60c4052359b3d52a2cff7f-Paper-Conference.pdf
         for i, block in enumerate(self.layers):
             ls = 1 / math.sqrt(student_depth + i + 1)
-            assert isinstance(block.self_attn_ls, LayerScale) and isinstance(block.cross_attn_ls, LayerScale) and isinstance(block.mlp_ls, LayerScale)
-            block.self_attn_ls.gamma.data.fill_(ls)
+            assert isinstance(block.cross_attn_ls, LayerScale) and isinstance(block.mlp_ls, LayerScale)
+            if self.allow_self_attn:
+                assert isinstance(block.self_attn_ls, LayerScale)
+                block.self_attn_ls.gamma.data.fill_(ls)
             block.cross_attn_ls.gamma.data.fill_(ls)
             block.mlp_ls.gamma.data.fill_(ls)
 
@@ -385,6 +408,8 @@ class XAttnAllAdaptor(AdaptorModuleBase):
         self_attn_info = {
             'cu_seqlens': device_tgt_cu_seqlens,
             'max_seqlen': tgt_seq_len,
+            'grid_size': self.t_patches or student_grid_sizes[0],
+            'num_prefix': 2,
         }
 
         for layer in self.layers:  # type: ignore[assignment]
@@ -452,7 +477,10 @@ class XAttnAllAdaptor(AdaptorModuleBase):
         # Expand for batch dimension
         mem_position_ids = mem_position_ids.unsqueeze(0).expand(B, -1, -1)
 
-        self_attn_info, cross_attn_info = dict(), dict()
+        self_attn_info, cross_attn_info = dict(
+            grid_size=self.t_patches or student_grid_sizes[0],
+            num_prefix=2,
+        ), dict()
 
         # Forward through layers
         for layer in self.layers:  # type: ignore[assignment]
@@ -557,7 +585,7 @@ class XAttnAllAdaptor(AdaptorModuleBase):
         # Range [0, 1]
         norm_grid = grid.add(1).div_(2.0)
 
-        sizes_tensor = torch.tensor(grid_sizes, device=norm_grid.device, dtype=norm_grid.dtype)#.sub_(1)
+        sizes_tensor = torch.tensor(grid_sizes, device=norm_grid.device, dtype=norm_grid.dtype).sub_(1)
         # sizes_tensor is (H, W) = (y, x); flip to (W, H) = (x, y) to match norm_grid's (x, y) format
         sizes_tensor = sizes_tensor.flip(-1)
         if sizes_tensor.ndim == 1:

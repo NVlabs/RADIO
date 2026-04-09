@@ -74,6 +74,18 @@ def is_flash_attn_available() -> bool:
     return _FA_VARLEN_AVAILABLE
 
 
+_NATTEN_AVAILABLE = False
+na2d_func: Optional[Callable[..., Tensor]] = None
+
+try:
+    from natten.functional import na2d  # type: ignore
+    na2d_func = na2d
+    _NATTEN_AVAILABLE = True
+    _LOGGER.info('VarlenRoPEAttention: NATTEN na2d available for neighborhood attention')
+except ImportError:
+    _LOGGER.info('VarlenRoPEAttention: NATTEN not available, neighborhood attention will not work')
+
+
 ###############################################################################
 # RoPE2D — 2D Rotary Position Embedding
 ###############################################################################
@@ -305,7 +317,9 @@ class VarlenRoPEAttention(nn.Module):
         qkv_bias: bool = True,
         attn_drop: float = 0.0,
         proj_drop: float = 0.0,
-        norm_layer: Callable[..., nn.Module] = nn.Identity,
+        norm_layer: Callable[..., nn.Module] = nn.LayerNorm,
+        qk_norm: bool = False,
+        self_attn_kernel_size: Optional[int] = None,
     ):
         super().__init__()
         self.dim = dim
@@ -313,10 +327,11 @@ class VarlenRoPEAttention(nn.Module):
         self.head_dim = head_dim or dim // num_heads
         self.scale = self.head_dim ** -0.5
         self.attn_drop_p = attn_drop
+        self.self_attn_kernel_size = self_attn_kernel_size
 
         self.qkv = nn.Linear(dim, 3 * num_heads * self.head_dim, bias=qkv_bias)
-        self.q_norm = norm_layer(self.head_dim)
-        self.k_norm = norm_layer(self.head_dim)
+        self.q_norm = norm_layer(self.head_dim) if qk_norm else nn.Identity()
+        self.k_norm = norm_layer(self.head_dim) if qk_norm else nn.Identity()
         self.proj = nn.Linear(num_heads * self.head_dim, dim)
         self.proj_drop = nn.Dropout(proj_drop)
 
@@ -339,7 +354,10 @@ class VarlenRoPEAttention(nn.Module):
         Returns:
             Output tensor with same shape as input.
         """
-        if _FA_VARLEN_AVAILABLE and 'cu_seqlens' in attn_info and position_ids is not None:
+        if self.self_attn_kernel_size is not None and 'grid_size' in attn_info:
+            # Neighborhood attention (na2d) for spatial tokens, skip prefix tokens
+            return self._forward_na2d(x, position_ids, attn_info)
+        elif _FA_VARLEN_AVAILABLE and 'cu_seqlens' in attn_info and position_ids is not None:
             # Flash attention with variable length sequences
             return self._forward_flash_varlen(x, position_ids, attn_info)
         else:
@@ -381,7 +399,7 @@ class VarlenRoPEAttention(nn.Module):
         max_seqlen = attn_info['max_seqlen']
 
         out = flash_attn_varlen_func(
-            q, k, v,
+            q.to(dtype=torch.bfloat16), k.to(dtype=torch.bfloat16), v.to(dtype=torch.bfloat16),
             cu_seqlens_q=cu_seqlens,
             cu_seqlens_k=cu_seqlens,
             max_seqlen_q=max_seqlen,
@@ -427,7 +445,7 @@ class VarlenRoPEAttention(nn.Module):
 
         # Scaled dot-product attention
         out = F.scaled_dot_product_attention(
-            q, k, v,
+            q.to(dtype=torch.bfloat16), k.to(dtype=torch.bfloat16), v.to(dtype=torch.bfloat16),
             attn_mask=attn_mask,
             dropout_p=self.attn_drop_p if self.training else 0.0,
             scale=self.scale,
@@ -437,6 +455,78 @@ class VarlenRoPEAttention(nn.Module):
         out = out.transpose(1, 2).reshape(B, N, -1)
         out = self.proj(out)
         out = self.proj_drop(out)
+
+        return out
+
+    def _forward_na2d(
+        self,
+        x: Tensor,
+        position_ids: Optional[Tensor],
+        attn_info: Dict,
+    ) -> Tensor:
+        """Forward pass using NATTEN neighborhood attention for spatial tokens.
+
+        Prefix tokens (e.g. homography, summary) are skipped (zero self-attention
+        residual) and only spatial tokens participate in neighborhood attention.
+
+        Requires 'grid_size' (H, W) and 'num_prefix' (int) in attn_info.
+        """
+        assert na2d_func is not None, "NATTEN not available"
+        assert self.self_attn_kernel_size is not None
+
+        grid_h, grid_w = attn_info['grid_size']
+        num_prefix: int = attn_info.get('num_prefix', 0)
+        is_varlen = 'cu_seqlens' in attn_info
+
+        if is_varlen:
+            raise NotImplementedError("na2d neighborhood attention is not yet supported in varlen mode")
+
+        B = x.shape[0]
+        spatial_len = grid_h * grid_w
+
+        # Compute QKV for spatial tokens only
+        x_spatial = x[:, num_prefix:]  # (B, H*W, dim)
+        pos_spatial = position_ids[:, num_prefix:] if position_ids is not None else None
+
+        qkv = self.qkv(x_spatial).reshape(B, spatial_len, 3, self.num_heads, self.head_dim)
+        q, k, v = qkv.unbind(2)  # Each: (B, H*W, num_heads, head_dim)
+
+        # Transpose to (B, num_heads, H*W, head_dim) for norm and RoPE
+        q = q.transpose(1, 2)
+        k = k.transpose(1, 2)
+
+        q = self.q_norm(q)
+        k = self.k_norm(k)
+
+        # Apply 2D RoPE
+        if pos_spatial is not None:
+            q, k = self.rope(q, k, pos_spatial, attn_info=attn_info)
+
+        # Transpose back to (B, H*W, num_heads, head_dim) then reshape to (B, H, W, num_heads, head_dim)
+        q = q.transpose(1, 2).reshape(B, grid_h, grid_w, self.num_heads, self.head_dim)
+        k = k.transpose(1, 2).reshape(B, grid_h, grid_w, self.num_heads, self.head_dim)
+        v = v.reshape(B, grid_h, grid_w, self.num_heads, self.head_dim)
+
+        # NATTEN neighborhood attention
+        out = na2d_func(
+            q.to(dtype=torch.bfloat16),
+            k.to(dtype=torch.bfloat16),
+            v.to(dtype=torch.bfloat16),
+            kernel_size=self.self_attn_kernel_size,
+            scale=self.scale,
+        )  # (B, H, W, num_heads, head_dim)
+
+        # Reshape back to (B, H*W, dim)
+        out = out.reshape(B, spatial_len, -1)
+
+        # Project spatial output
+        out = self.proj(out)
+        out = self.proj_drop(out)
+
+        # Prefix tokens get zero self-attention residual
+        if num_prefix > 0:
+            prefix_out = out.new_zeros(B, num_prefix, out.shape[-1])
+            out = torch.cat([prefix_out, out], dim=1)
 
         return out
 
@@ -468,6 +558,7 @@ class VarlenRoPEXAttn(nn.Module):
         head_dim: Optional[int] = None,
         qkv_bias: bool = True,
         proj_drop: float = 0.0,
+        qk_norm: bool = False,
     ):
         super().__init__()
         self.dim = dim
@@ -483,6 +574,9 @@ class VarlenRoPEXAttn(nn.Module):
 
         self.out_proj = nn.Linear(num_heads * self.head_dim, dim)
         self.proj_drop = nn.Dropout(proj_drop)
+
+        self.q_norm = nn.LayerNorm(self.head_dim) if qk_norm else nn.Identity()
+        self.k_norm = nn.LayerNorm(self.head_dim) if qk_norm else nn.Identity()
 
         self.rope = rope
 
@@ -502,6 +596,9 @@ class VarlenRoPEXAttn(nn.Module):
         k = self.k_proj(memory).reshape(-1, self.num_heads, self.head_dim)
         v = self.v_proj(memory).reshape(-1, self.num_heads, self.head_dim)
 
+        q = self.q_norm(q)
+        k = self.k_norm(k)
+
         # Apply RoPE
         q_t = q.transpose(0, 1)  # (H, N_q, D)
         k_t = k.transpose(0, 1)  # (H, N_kv, D)
@@ -511,7 +608,7 @@ class VarlenRoPEXAttn(nn.Module):
 
         # Flash attention
         out = flash_attn_varlen_func(
-            q, k, v,
+            q.to(dtype=torch.bfloat16), k.to(dtype=torch.bfloat16), v.to(dtype=torch.bfloat16),
             cu_seqlens_q=attn_info['cu_seqlens_q'],
             cu_seqlens_k=attn_info['cu_seqlens_kv'],
             max_seqlen_q=attn_info['max_seqlen_q'],
@@ -544,6 +641,9 @@ class VarlenRoPEXAttn(nn.Module):
         k = self.k_proj(memory).reshape(B, N_kv, self.num_heads, self.head_dim).transpose(1, 2)
         v = self.v_proj(memory).reshape(B, N_kv, self.num_heads, self.head_dim).transpose(1, 2)
 
+        q = self.q_norm(q)
+        k = self.k_norm(k)
+
         # Apply RoPE
         q, k = self.rope(q, k, tgt_position_ids, mem_position_ids, attn_info=attn_info)
 
@@ -555,7 +655,9 @@ class VarlenRoPEXAttn(nn.Module):
             attn_mask = attn_mask.float().masked_fill(attn_mask, float('-inf'))
 
         # Scaled dot-product attention
-        out = F.scaled_dot_product_attention(q, k, v, attn_mask=attn_mask, scale=self.scale)
+        out = F.scaled_dot_product_attention(
+            q.to(dtype=torch.bfloat16), k.to(dtype=torch.bfloat16), v.to(dtype=torch.bfloat16),
+            attn_mask=attn_mask, scale=self.scale)
 
         # Reshape and project
         out = out.transpose(1, 2).reshape(B, N_q, D)
@@ -734,6 +836,7 @@ class VarlenAttnPool(nn.Module):
         rope: RoPE2D,
         mlp_ratio: float = 4.0,
         qkv_bias: bool = True,
+        qk_norm: bool = False,
     ):
         super().__init__()
         self.dim = dim
@@ -751,6 +854,7 @@ class VarlenAttnPool(nn.Module):
             num_heads=num_heads,
             rope=rope,
             qkv_bias=qkv_bias,
+            qk_norm=qk_norm,
         )
 
         self.mlp_norm = nn.LayerNorm(dim)
@@ -762,6 +866,25 @@ class VarlenAttnPool(nn.Module):
 
         self.tgt = nn.Parameter(torch.randn(1, num_tokens, dim) * 0.02)
         self.register_buffer('positions', torch.zeros(1, num_tokens, 2, dtype=torch.float32), persistent=False)
+
+    def _load_from_state_dict(self, state_dict, prefix, local_metadata, strict, missing_keys, unexpected_keys, error_msgs):
+        tgt_key = prefix + 'tgt'
+        if tgt_key in state_dict:
+            ckpt_tgt = state_dict[tgt_key]
+            ckpt_num_tokens = ckpt_tgt.shape[1]
+            if ckpt_num_tokens != self.num_tokens:
+                if ckpt_num_tokens > self.num_tokens:
+                    raise ValueError(
+                        f"Checkpoint has {ckpt_num_tokens} attention pool tokens, "
+                        f"but the model only has {self.num_tokens}. "
+                        f"The model's num_tokens must be >= the checkpoint's."
+                    )
+                # Pad with the initialized values for the extra tokens
+                new_tgt = self.tgt.data.clone()
+                new_tgt[:, :ckpt_num_tokens, :] = ckpt_tgt
+                state_dict[tgt_key] = new_tgt
+
+        super()._load_from_state_dict(state_dict, prefix, local_metadata, strict, missing_keys, unexpected_keys, error_msgs)
 
     def forward(
         self,
@@ -1010,12 +1133,17 @@ class NaViT(nn.Module):
         super().__init__()
         self.embed_dim = embed_dim
         self.patch_size = patch_size
-        self.pool_type = pool_type
 
         if isinstance(norm_method, str):
             norm_method = NormMethod[norm_method.upper()]
         if isinstance(norm_layer, str):
             norm_layer = _NORM_FACTORY[norm_layer.lower()]
+
+        pool_qk_norm = False
+        if pool_type == 'attn_qknorm':
+            pool_type = 'attn'
+            pool_qk_norm = True
+        self.pool_type = pool_type
 
         if pool_type == 'attn':
             self.attn_pool = VarlenAttnPool(
@@ -1025,6 +1153,7 @@ class NaViT(nn.Module):
                 rope=RoPE2D(embed_dim // num_heads, base=rope_base, rope_fraction=rope_fraction),
                 mlp_ratio=mlp_ratio,
                 qkv_bias=qkv_bias,
+                qk_norm=pool_qk_norm,
             )
             num_cls_tokens = 0  # CLS tokens are now implemented as part of the attention pool
         elif pool_type == 'cls_token':
