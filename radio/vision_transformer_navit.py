@@ -43,6 +43,21 @@ _LOGGER = getLogger(__name__)
 
 
 ###############################################################################
+# Fused rotary embedding kernel (optional)
+###############################################################################
+
+_FUSED_ROTARY_AVAILABLE = False
+_apply_rotary_emb_fused: Optional[Callable[..., Tensor]] = None
+
+try:
+    from flash_attn.layers.rotary import apply_rotary_emb as _apply_rotary_emb_fused  # type: ignore
+    _FUSED_ROTARY_AVAILABLE = True
+    _LOGGER.info('RoPE2D: Fused rotary embedding kernel available (flash_attn.layers.rotary)')
+except ImportError:
+    _LOGGER.info('RoPE2D: Fused rotary kernel not available, using manual rotate_half fallback')
+
+
+###############################################################################
 # Flash Attention imports with fallback
 ###############################################################################
 
@@ -72,17 +87,6 @@ except ImportError:
 def is_flash_attn_available() -> bool:
     """Check if FlashAttention with variable-length support is available."""
     return _FA_VARLEN_AVAILABLE
-
-
-_FUSED_ROTARY_AVAILABLE = False
-_apply_rotary_emb_fused: Optional[Callable[..., Tensor]] = None
-
-try:
-    from flash_attn.layers.rotary import apply_rotary_emb as _apply_rotary_emb_fused  # type: ignore
-    _FUSED_ROTARY_AVAILABLE = True
-    _LOGGER.info('RoPE2D: Fused rotary embedding kernel available (flash_attn.layers.rotary)')
-except ImportError:
-    _LOGGER.info('RoPE2D: Fused rotary kernel not available, using manual rotate_half fallback')
 
 
 _NATTEN_AVAILABLE = False
@@ -285,6 +289,8 @@ class RoPE2D(nn.Module):
           - 2D: (seq_len, dim//2)                     [varlen path]
           - 3D: (B, seq_len, dim//2)                  [batched path]
         """
+        assert _apply_rotary_emb_fused is not None
+
         squeezed = q.dim() == 3
         if squeezed:
             # (H, S, D) -> (1, H, S, D)
@@ -431,7 +437,9 @@ class VarlenRoPEAttention(nn.Module):
         Returns:
             Output tensor with same shape as input.
         """
-        if self.self_attn_kernel_size is not None and 'grid_size' in attn_info:
+        if self.self_attn_kernel_size is not None:
+            if 'grid_size' not in attn_info:
+                raise ValueError('`grid_size` must be present in `attn_info` for neighborhood attention to work!')
             # Neighborhood attention (na2d) for spatial tokens, skip prefix tokens
             return self._forward_na2d(x, position_ids, attn_info)
         elif _FA_VARLEN_AVAILABLE and 'cu_seqlens' in attn_info and position_ids is not None:
@@ -1205,24 +1213,21 @@ class NaViT(nn.Module):
         vitdet_config: Union[dict, ViTDetConfig, None] = None,
         norm_method: Union[NormMethod, str] = NormMethod.PRE,
         matryoshka: bool = False,
+        post_norm_affine: bool = False,
         **kwargs,
     ):
         super().__init__()
         self.embed_dim = embed_dim
         self.patch_size = patch_size
+        self.pool_type = pool_type
 
         if isinstance(norm_method, str):
             norm_method = NormMethod[norm_method.upper()]
         if isinstance(norm_layer, str):
             norm_layer = _NORM_FACTORY[norm_layer.lower()]
 
-        pool_qk_norm = False
-        if pool_type == 'attn_qknorm':
-            pool_type = 'attn'
-            pool_qk_norm = True
-        self.pool_type = pool_type
-
-        if pool_type == 'attn':
+        if pool_type.startswith('attn'):
+            qk_norm = pool_type == 'attn_qknorm'
             self.attn_pool = VarlenAttnPool(
                 dim=embed_dim,
                 num_heads=num_heads,
@@ -1230,9 +1235,10 @@ class NaViT(nn.Module):
                 rope=RoPE2D(embed_dim // num_heads, base=rope_base, rope_fraction=rope_fraction),
                 mlp_ratio=mlp_ratio,
                 qkv_bias=qkv_bias,
-                qk_norm=pool_qk_norm,
+                qk_norm=qk_norm,
             )
             num_cls_tokens = 0  # CLS tokens are now implemented as part of the attention pool
+            self.pool_type = 'attn'
         elif pool_type == 'cls_token':
             pass
         else:
@@ -1334,7 +1340,7 @@ class NaViT(nn.Module):
             for i in range(depth)
         ])
 
-        self.norm_post = norm_layer(embed_dim, eps=1e-6, elementwise_affine=False)
+        self.norm_post = norm_layer(embed_dim, eps=1e-6, elementwise_affine=post_norm_affine)
 
     def _sample_matryoshka_dim(self) -> int:
         """Sample a random matryoshka dimension during training, or return full dim."""
@@ -1647,34 +1653,6 @@ class NaViT(nn.Module):
         max_window_ct = min(grid_h, window_size) * min(grid_w, window_size)
 
         return reordered_tokens, patch_order, cu_seqlens, max_window_ct
-
-    def _load_from_state_dict(
-        self, state_dict, prefix, local_metadata, strict, missing_keys, unexpected_keys, error_msgs
-    ):
-        weight_key = prefix + "norm_post.weight"
-        bias_key = prefix + "norm_post.bias"
-        has_weight = weight_key in state_dict
-        has_bias = bias_key in state_dict
-
-        norm = self.norm_post
-        is_affine = getattr(norm, 'elementwise_affine', False)
-
-        if has_weight and not is_affine:
-            # Checkpoint has affine norm_post but ours is non-affine; upgrade it
-            norm.elementwise_affine = True
-            norm.weight = nn.Parameter(torch.ones(norm.normalized_shape))
-            if has_bias:
-                norm.bias = nn.Parameter(torch.zeros(norm.normalized_shape))
-        elif not has_weight and is_affine:
-            # Checkpoint has non-affine norm_post but ours is affine; downgrade it
-            norm.elementwise_affine = False
-            norm.weight = None
-            norm.bias = None
-
-        super()._load_from_state_dict(
-            state_dict, prefix, local_metadata, strict, missing_keys, unexpected_keys, error_msgs
-        )
-
 
 ###############################################################################
 # Initialization helpers
