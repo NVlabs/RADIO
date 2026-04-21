@@ -74,6 +74,17 @@ def is_flash_attn_available() -> bool:
     return _FA_VARLEN_AVAILABLE
 
 
+_FUSED_ROTARY_AVAILABLE = False
+_apply_rotary_emb_fused: Optional[Callable[..., Tensor]] = None
+
+try:
+    from flash_attn.layers.rotary import apply_rotary_emb as _apply_rotary_emb_fused  # type: ignore
+    _FUSED_ROTARY_AVAILABLE = True
+    _LOGGER.info('RoPE2D: Fused rotary embedding kernel available (flash_attn.layers.rotary)')
+except ImportError:
+    _LOGGER.info('RoPE2D: Fused rotary kernel not available, using manual rotate_half fallback')
+
+
 _NATTEN_AVAILABLE = False
 na2d_func: Optional[Callable[..., Tensor]] = None
 
@@ -181,27 +192,25 @@ class RoPE2D(nn.Module):
         """Number of dimensions that don't have RoPE (p-RoPE semantic channels)."""
         return self._nope_dims
 
-    def _compute_cos_sin(
+    def _compute_cos_sin_half(
         self,
         position_ids: Tensor,
         dtype: torch.dtype,
     ) -> Tuple[Tensor, Tensor]:
-        """Compute cos and sin for given position IDs.
+        """Compute cos and sin at half-dim (before tiling).
 
         Args:
             position_ids: (..., seq_len, 2) or (seq_len, 2) tensor of (row, col) positions.
             dtype: Output dtype.
 
         Returns:
-            Tuple of (cos, sin) tensors.
+            Tuple of (cos, sin) tensors of shape (..., seq_len, dim//2).
         """
         freqs = position_ids.float().unsqueeze(-1) @ self.inv_freq.unsqueeze(0)  # (..., seq_len, 2, D//4)
         freqs = freqs.flatten(-2)  # (..., seq_len, D//2)
-        # Repeat the last dimension twice
-        freqs = freqs.tile(2)  # (..., seq_len, D)
 
-        cos = freqs.cos().to(dtype)  # (..., seq_len, dim)
-        sin = freqs.sin().to(dtype)  # (..., seq_len, dim)
+        cos = freqs.cos().to(dtype)
+        sin = freqs.sin().to(dtype)
 
         return cos, sin
 
@@ -216,8 +225,8 @@ class RoPE2D(nn.Module):
         """Apply 2D RoPE to queries and keys.
 
         Args:
-            q: Query tensor of shape (..., seq_len_q, dim).
-            k: Key tensor of shape (..., seq_len_k, dim).
+            q: Query tensor of shape (..., num_heads, seq_len, dim) or (..., seq_len, dim).
+            k: Key tensor of shape (..., num_heads, seq_len, dim) or (..., seq_len, dim).
             q_position_ids: (seq_len_q, 2) or (..., seq_len_q, 2) tensor of (row, col) positions for queries.
             k_position_ids: (seq_len_k, 2) or (..., seq_len_k, 2) tensor of (row, col) positions for keys.
                            If None, uses q_position_ids (for self-attention).
@@ -230,30 +239,98 @@ class RoPE2D(nn.Module):
             k_position_ids = q_position_ids
 
         dtype = q.dtype
-
-        # Check cache - use separate keys for q and k
         same_positions = k_position_ids is q_position_ids
 
-        # Try to get cached cos/sin for queries
+        # Get or compute half-dim cos/sin (cached across blocks via attn_info)
         q_cos_sin = attn_info.get('rope_q_cache', None) if attn_info is not None else None
         if q_cos_sin is not None:
-            q_cos, q_sin = q_cos_sin
+            q_cos_half, q_sin_half = q_cos_sin
         else:
-            q_cos, q_sin = self._compute_cos_sin(q_position_ids, dtype)
+            q_cos_half, q_sin_half = self._compute_cos_sin_half(q_position_ids, dtype)
             if attn_info is not None:
-                attn_info['rope_q_cache'] = (q_cos, q_sin)
+                attn_info['rope_q_cache'] = (q_cos_half, q_sin_half)
 
-        # For keys: reuse q cache if same positions, otherwise check k cache
         if same_positions:
-            k_cos, k_sin = q_cos, q_sin
+            k_cos_half, k_sin_half = q_cos_half, q_sin_half
         else:
             k_cos_sin = attn_info.get('rope_k_cache', None) if attn_info is not None else None
             if k_cos_sin is not None:
-                k_cos, k_sin = k_cos_sin
+                k_cos_half, k_sin_half = k_cos_sin
             else:
-                k_cos, k_sin = self._compute_cos_sin(k_position_ids, dtype)
+                k_cos_half, k_sin_half = self._compute_cos_sin_half(k_position_ids, dtype)
                 if attn_info is not None:
-                    attn_info['rope_k_cache'] = (k_cos, k_sin)
+                    attn_info['rope_k_cache'] = (k_cos_half, k_sin_half)
+
+        if _FUSED_ROTARY_AVAILABLE:
+            return self._apply_fused(q, k, q_cos_half, q_sin_half, k_cos_half, k_sin_half, dtype)
+        else:
+            return self._apply_manual(q, k, q_cos_half, q_sin_half, k_cos_half, k_sin_half, dtype)
+
+    def _apply_fused(
+        self,
+        q: Tensor, k: Tensor,
+        q_cos: Tensor, q_sin: Tensor,
+        k_cos: Tensor, k_sin: Tensor,
+        dtype: torch.dtype,
+    ) -> Tuple[Tensor, Tensor]:
+        """Apply RoPE using the fused flash_attn kernel.
+
+        apply_rotary_emb expects:
+          x:   (batch, seq_len, num_heads, head_dim)
+          cos: (seq_len, rotary_dim)  — i.e. 2D
+        Our inputs are either:
+          - 4D: (B, num_heads, seq_len, head_dim)  [batched path]
+          - 3D: (num_heads, seq_len, head_dim)       [varlen path]
+        cos/sin are either:
+          - 2D: (seq_len, dim//2)                     [varlen path]
+          - 3D: (B, seq_len, dim//2)                  [batched path]
+        """
+        squeezed = q.dim() == 3
+        if squeezed:
+            # (H, S, D) -> (1, H, S, D)
+            q = q.unsqueeze(0)
+            k = k.unsqueeze(0)
+
+        # Swap heads <-> seqlen: (B, H, S, D) -> (B, S, H, D)
+        q = q.transpose(-3, -2)
+        k = k.transpose(-3, -2)
+
+        # Fused kernel expects cos/sin as 2D (seqlen, rotary_dim).
+        # For the batched path they are (B, S, D//2) — since every
+        # element in the batch has the same positions we can just take [0].
+        if q_cos.dim() == 3:
+            q_cos = q_cos[0]
+            q_sin = q_sin[0]
+        if k_cos.dim() == 3:
+            k_cos = k_cos[0]
+            k_sin = k_sin[0]
+
+        q = _apply_rotary_emb_fused(q, q_cos, q_sin, interleaved=False)
+        k = _apply_rotary_emb_fused(k, k_cos, k_sin, interleaved=False)
+
+        # Swap back: (B, S, H, D) -> (B, H, S, D)
+        q = q.transpose(-3, -2)
+        k = k.transpose(-3, -2)
+
+        if squeezed:
+            q = q.squeeze(0)
+            k = k.squeeze(0)
+
+        return q.to(dtype=dtype), k.to(dtype=dtype)
+
+    def _apply_manual(
+        self,
+        q: Tensor, k: Tensor,
+        q_cos_half: Tensor, q_sin_half: Tensor,
+        k_cos_half: Tensor, k_sin_half: Tensor,
+        dtype: torch.dtype,
+    ) -> Tuple[Tensor, Tensor]:
+        """Apply RoPE using the manual rotate_half fallback."""
+        # Tile half-dim cos/sin to full dim for the rotate_half convention
+        q_cos = q_cos_half.tile(2)
+        q_sin = q_sin_half.tile(2)
+        k_cos = k_cos_half.tile(2)
+        k_sin = k_sin_half.tile(2)
 
         # Broadcast cos/sin properly for the input shape
         while q_cos.dim() < q.dim():
