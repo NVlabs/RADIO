@@ -97,6 +97,10 @@ class _SNReweight(_SpectralNorm):
         if version_key not in state_dict:
             self.version = 1
             state_dict[version_key] = torch.tensor(1)
+        scale_key = f'{prefix}scale'
+        if scale_key in state_dict and state_dict[scale_key].shape != self.scale.shape:
+            # Compat: evfm checkpoints have scale as (1, 4) for FSDP alignment, take first column
+            state_dict[scale_key] = state_dict[scale_key][:, :1].contiguous()
         return super()._load_from_state_dict(state_dict, prefix, local_metadata, strict, missing_keys, unexpected_keys, error_msgs)
 
 
