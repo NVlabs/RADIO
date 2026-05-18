@@ -76,9 +76,18 @@ class GenericAdaptor(AdaptorBase):
             else:
                 self.feat_mlp = None
 
+        # Anchor head_mlp's dtype on a (non-persistent) buffer so `forward` can
+        # discover it without iterating `parameters()`. Under nn.DataParallel a
+        # replica's frozen Parameters are nulled out in `_parameters` (the
+        # broadcast tensor lives in `__dict__` for attribute access), which
+        # makes `next(self.parameters())` raise StopIteration on an entirely
+        # frozen adaptor. Buffers are unconditionally broadcast and follow
+        # `.to(dtype=...)` calls naturally.
+        head_param = next(self.head_mlp.parameters())
+        self.register_buffer('_dtype_anchor', torch.empty((), dtype=head_param.dtype), persistent=False)
+
     def forward(self, input: AdaptorInput) -> RadioOutput:
-        # Convert input'd type to the type of the first parameter of the adaptor.
-        first_param = next(self.parameters())
+        anchor_dtype = self._dtype_anchor.dtype
 
         # Build extra_args for head_mlp based on its signature
         head_mlp_sig = inspect.signature(self.head_mlp.forward)
@@ -88,14 +97,14 @@ class GenericAdaptor(AdaptorBase):
 
         if self.head_mlp.handles_summary_and_spatial:
             summary, feat = self.head_mlp(
-                input.summary.to(dtype=first_param.dtype),
-                input.features.to(dtype=first_param.dtype),
+                input.summary.to(dtype=anchor_dtype),
+                input.features.to(dtype=anchor_dtype),
                 **extra_summary_args,
             )
         else:
-            summary = self.head_mlp(input.summary.to(dtype=first_param.dtype), **extra_summary_args).to(dtype=input.summary.dtype)
+            summary = self.head_mlp(input.summary.to(dtype=anchor_dtype), **extra_summary_args).to(dtype=input.summary.dtype)
             assert self.feat_mlp is not None
-            feat = self.feat_mlp(input.features.to(dtype=first_param.dtype), images=input.images, patch_size=input.patch_size).to(dtype=input.features.dtype)
+            feat = self.feat_mlp(input.features.to(dtype=anchor_dtype), images=input.images, patch_size=input.patch_size).to(dtype=input.features.dtype)
 
         if input.feature_fmt == 'NCHW':
             feat = (feat.reshape(feat.shape[0], input.patch_shape[0] * self.feat_mlp.upsample_factor, input.patch_shape[1] * self.feat_mlp.upsample_factor, feat.shape[2])

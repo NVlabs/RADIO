@@ -7,15 +7,12 @@
 # license agreement from NVIDIA CORPORATION is strictly prohibited.
 
 from contextlib import contextmanager
-from typing import List, Optional, Set, Tuple, Union
-from types import MethodType
+from typing import Dict, Optional, Tuple, Type, Union
 
 import torch
 from torch import nn
 
 from timm.models import VisionTransformer, checkpoint_seq
-
-from .feature_normalizer import IntermediateFeatureNormalizerBase, NullIntermediateFeatureNormalizer
 
 from .extra_models import DinoWrapper
 from .vit_patch_generator import ViTPatchGenerator
@@ -23,67 +20,119 @@ from .forward_intermediates import forward_intermediates
 from .dual_hybrid_vit import HybridModel
 
 
-def _forward_cpe(self: VisionTransformer, x: torch.Tensor) -> torch.Tensor:
-    x = self.patch_generator(x)
-    if getattr(self, 'grad_checkpointing', False) and not torch.jit.is_scripting():
-        x = checkpoint_seq(self.blocks, x)
-    else:
-        x = self.blocks(x)
-    x = self.norm(x)
-    return x
+# --------------------------------------------------------------------------- #
+# CPE method mixins
+#
+# These are class-level methods (not bound to a specific instance), so they
+# resolve through the MRO each call. That is the key property that lets a
+# `nn.DataParallel` replica — which is a shallow copy with rewritten
+# `_parameters` / `_buffers` — dispatch to its own `self.patch_generator`
+# instead of the original module's. The previous `MethodType(_forward_cpe,
+# model)` approach captured the construction-time `model` instance inside the
+# bound method, so a replica would walk the original module's submodules and
+# hit cross-device tensor errors.
+# --------------------------------------------------------------------------- #
 
 
-@contextmanager
-def _video_mode(self: VisionTransformer, t: int):
+class _CPEViTMixin:
+    """CPE-enabled forward methods for a timm `VisionTransformer` subclass.
+
+    Expects `self.patch_generator`, `self.blocks`, `self.norm` to be present
+    (attached by `_enable_cpe_for_timm_vit`).
     """
-    Context manager to temporarily set the model in video mode.
-    This is used to handle models that support both image and video inputs.
+
+    def forward_features(self, x: torch.Tensor) -> torch.Tensor:
+        x = self.patch_generator(x)
+        if getattr(self, 'grad_checkpointing', False) and not torch.jit.is_scripting():
+            x = checkpoint_seq(self.blocks, x)
+        else:
+            x = self.blocks(x)
+        x = self.norm(x)
+        return x
+
+    def forward_intermediates(self, x: torch.Tensor, norm: bool = False, **kwargs):
+        return forward_intermediates(
+            self,
+            patch_extractor=self.patch_generator,
+            num_summary_tokens=self.patch_generator.num_skip,
+            num_cls_tokens=self.patch_generator.num_cls_tokens,
+            norm=self.norm if norm else lambda y: y,
+            x=x,
+            **kwargs,
+        )
+
+    @contextmanager
+    def cpe_video_mode(self, t: int):
+        original_num_frames = self.patch_generator.num_video_frames
+        self.patch_generator.num_video_frames = t
+        try:
+            yield
+        finally:
+            self.patch_generator.num_video_frames = original_num_frames
+
+
+class _CPEDinoWrapperMixin:
+    """CPE-enabled forward methods for a `DinoWrapper` subclass.
+
+    Delegates to `self.inner`, which must itself have been reclassed with
+    `_CPEViTMixin` so the inner's CPE forward is available.
     """
-    original_num_frames = self.patch_generator.num_video_frames
-    self.patch_generator.num_video_frames = t
-    try:
-        yield
-    finally:
-        self.patch_generator.num_video_frames = original_num_frames
+
+    def forward_features(self, x: torch.Tensor) -> torch.Tensor:
+        y = self.inner.forward_features(x)
+        return y[:, 0], y[:, self.num_summary_tokens:]
+
+    def forward_intermediates(self, *args, **kwargs):
+        return self.inner.forward_intermediates(*args, **kwargs)
+
+    @contextmanager
+    def cpe_video_mode(self, t: int):
+        with self.inner.cpe_video_mode(t):
+            yield
 
 
-def _take_indices(
-        num_blocks: int,
-        n: Optional[Union[int, List[int], Tuple[int]]],
-) -> Tuple[Set[int], int]:
-    if isinstance(n, int):
-        assert n >= 0
-        take_indices = {x for x in range(num_blocks - n, num_blocks)}
-    else:
-        take_indices = {num_blocks + idx if idx < 0 else idx for idx in n}
-    return take_indices, max(take_indices)
+class _CPEHybridMixin:
+    """CPE plumbing for `HybridModel`. Only `cpe_video_mode` needs to delegate
+    to the inner ViT — the rest of HybridModel's forward path already routes
+    through `self.vit.forward_features` (now CPE-enabled by reclass).
+    """
+
+    @contextmanager
+    def cpe_video_mode(self, t: int):
+        with self.vit.cpe_video_mode(t):
+            yield
 
 
-def _forward_intermediates_cpe(
-        self,
-        x: torch.Tensor,
-        norm: bool = False,
-        **kwargs,
-) -> Union[List[torch.Tensor], Tuple[torch.Tensor, List[torch.Tensor]]]:
-    return forward_intermediates(
-        self,
-        patch_extractor=self.patch_generator,
-        num_summary_tokens=self.patch_generator.num_skip,
-        num_cls_tokens=self.patch_generator.num_cls_tokens,
-        norm=self.norm if norm else lambda y: y,
-        x=x,
-        **kwargs,
-    )
+# --------------------------------------------------------------------------- #
+# Dynamic-subclass factory
+# --------------------------------------------------------------------------- #
 
 
-def _forward_cpe_dinov2(self: DinoWrapper, x: torch.Tensor) -> torch.Tensor:
-    y = _forward_cpe(self.inner, x)
-
-    return y[:, 0], y[:, self.num_summary_tokens:]
+_CPE_CLASS_CACHE: Dict[Tuple[Type, Type], Type] = {}
 
 
-def _forward_intermediates_cpe_dinov2(self: DinoWrapper, *args, **kwargs):
-    return _forward_intermediates_cpe(self.inner, *args, **kwargs)
+def _make_cpe_subclass(base: Type, mixin: Type) -> Type:
+    """Return a cached subclass of `base` that mixes in `mixin`.
+
+    The cache key is `(base, mixin)`, so reclassing many instances of the
+    same model type into the same CPE flavor reuses one class object.
+    """
+    key = (base, mixin)
+    cls = _CPE_CLASS_CACHE.get(key)
+    if cls is not None:
+        return cls
+
+    name = f'CPE_{base.__name__}'
+    cls = type(name, (mixin, base), {})
+    cls.__module__ = __name__
+    cls.__qualname__ = name
+    _CPE_CLASS_CACHE[key] = cls
+    return cls
+
+
+# --------------------------------------------------------------------------- #
+# Enablers
+# --------------------------------------------------------------------------- #
 
 
 def _enable_cpe_for_timm_vit(model: VisionTransformer,
@@ -126,8 +175,7 @@ def _enable_cpe_for_timm_vit(model: VisionTransformer,
     model.num_cls_tokens = num_cls_tokens
     model.num_registers = patch_generator.num_registers
 
-    model.forward_features = MethodType(_forward_cpe, model)
-    model.forward_intermediates = MethodType(_forward_intermediates_cpe, model)
+    model.__class__ = _make_cpe_subclass(type(model), _CPEViTMixin)
 
 
 def _enable_cpe_for_dv2_reg_vit(model: DinoWrapper,
@@ -167,8 +215,8 @@ def _enable_cpe_for_dv2_reg_vit(model: DinoWrapper,
     inner.register_tokens = None
     inner.patch_size = patch_size
 
-    model.forward_features = MethodType(_forward_cpe_dinov2, model)
-    model.forward_intermediates = MethodType(_forward_intermediates_cpe_dinov2, model)
+    inner.__class__ = _make_cpe_subclass(type(inner), _CPEViTMixin)
+    model.__class__ = _make_cpe_subclass(type(model), _CPEDinoWrapperMixin)
 
 
 def enable_cpe(model: nn.Module,
@@ -181,7 +229,6 @@ def enable_cpe(model: nn.Module,
         _enable_cpe_for_dv2_reg_vit(model, *args, **kwargs)
     elif isinstance(model, HybridModel):
         _enable_cpe_for_timm_vit(model.vit, *args, **kwargs)
+        model.__class__ = _make_cpe_subclass(type(model), _CPEHybridMixin)
     else:
         raise ValueError(f'CPE not supported for this model type: {type(model)}')
-
-    model.cpe_video_mode = MethodType(_video_mode, model)
