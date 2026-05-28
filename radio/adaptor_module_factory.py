@@ -17,11 +17,13 @@ from timm.models.vision_transformer import Block
 from .enable_spectral_reparam import disable_spectral_reparam, enable_spectral_reparam
 from .adaptor_mlp import MLP, MLP2
 from .adaptor_attn import AttnFDHead
+from .adaptor_xattn_all import XAttnAllAdaptor
 
 
 MLP_SUMMARY_FACTORY = {
     'v1': MLP,
     'v2': MLP2,
+    'xattn_all': XAttnAllAdaptor,
 }
 
 MLP_FD_FACTORY = {
@@ -64,6 +66,10 @@ def get_mlp_info_from_state(version: str, state: Dict[str, torch.Tensor], prefix
     elif version == 'attn':
         hidden_dim, input_dim = state[f'mlp.fc1.{weight_suffix}'].shape
         output_dim = state[f'mlp.final.2.{weight_suffix}'].shape[0]
+        num_inner = 0
+    elif version == 'xattn_all':
+        hidden_dim, input_dim = state['summary_proj.0.weight'].shape
+        output_dim = state['summary_proj.2.bias'].shape[0]
         num_inner = 0
     else:
         raise ValueError(f'Unsupported MLP version: {version}')
