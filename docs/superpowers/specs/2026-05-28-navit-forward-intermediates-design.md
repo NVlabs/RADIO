@@ -56,7 +56,9 @@ Signature matches the kwargs already forwarded by
 | Input type | `intermediates` shape | Final |
 |---|---|---|
 | `Tensor` `(B, C, H, W)` | `List[Tensor]`, each `(B, C, H, W)` (NCHW) or `(B, N, C)` (NLC) | `(summary, features)` matching `_forward_batched`'s return |
-| `List[Tensor]` (variable size) | `List[List[Tensor]]`, outer=layers, inner=images. Each per-image entry `(1, C, H_i, W_i)` (NCHW) or `(N_i, C)` (NLC) | `(summary, features_list)` matching `_forward_packed`'s return |
+| `List[Tensor]` (variable size) | `List[List[Tensor]]`, outer=layers, inner=images. Each per-image entry `(C, H_i, W_i)` (NCHW) or `(N_i, C)` (NLC) | `(summary, features_list)` matching `_forward_packed`'s return |
+
+For the batched case, the round-trip is: split `(B, C, H, W)` into a list of `(C, H, W)`, run packed, then `torch.stack(per_image_list, dim=0)` — same stack for both NCHW and NLC layouts since the per-image format omits the leading batch dim.
 
 `return_prefix_tokens=True` wraps each entry as `(prefix, feat)`. In packed mode
 that wrapping applies to each per-image entry.

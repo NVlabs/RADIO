@@ -39,6 +39,9 @@ from torch import Tensor
 
 from timm.models import register_model
 
+from .feature_normalizer import IntermediateFeatureNormalizerBase, NullIntermediateFeatureNormalizer
+from .forward_intermediates import _take_indices
+
 _LOGGER = getLogger(__name__)
 
 
@@ -1159,6 +1162,30 @@ _NORM_FACTORY = {
 }
 
 
+def _restack_intermediates_layer(layer, return_prefix_tokens: bool):
+    if return_prefix_tokens:
+        prefixes = [item[0] for item in layer]
+        feats = [item[1] for item in layer]
+        return torch.stack(prefixes, dim=0), torch.stack(feats, dim=0)
+    return torch.stack(layer, dim=0)
+
+
+def _restack_batched(result, *, intermediates_only: bool, return_prefix_tokens: bool):
+    if intermediates_only:
+        return [
+            _restack_intermediates_layer(layer, return_prefix_tokens)
+            for layer in result
+        ]
+
+    (summary, features_list), intermediates_out = result
+    intermediates_stacked = [
+        _restack_intermediates_layer(layer, return_prefix_tokens)
+        for layer in intermediates_out
+    ]
+    features_batched = torch.stack(features_list, dim=0)
+    return (summary, features_batched), intermediates_stacked
+
+
 class NaViT(nn.Module):
     """Native Resolution Vision Transformer with 2D RoPE.
 
@@ -1409,6 +1436,281 @@ class NaViT(nn.Module):
     ) -> Union[Tuple[Tensor, Tensor], Tuple[Tensor, List[Tensor]]]:
         """Alias for forward to get features."""
         return self.forward(x)
+
+    def forward_intermediates(
+        self,
+        x: Union[Tensor, List[Tensor]],
+        indices: Optional[Union[int, List[int], Tuple[int]]] = None,
+        return_prefix_tokens: bool = False,
+        norm: bool = False,
+        stop_early: bool = False,
+        output_fmt: str = 'NCHW',
+        intermediates_only: bool = False,
+        aggregation: Optional[str] = 'sparse',
+        inter_feature_normalizer: Optional[IntermediateFeatureNormalizerBase] = None,
+        norm_alpha_scheme: str = 'post-alpha',
+    ):
+        """Forward returning intermediate features.
+
+        For uniformly-sized batched input, the tensor is split into a list, run
+        through the packed implementation, and the per-image outputs are
+        re-stacked into batched tensors. Packed (list) input goes straight
+        through. `inter_feature_normalizer` is applied to the flat packed
+        sequence (no per-image prefix-token skipping); intended for
+        ``num_prefix_tokens == 0`` checkpoints.
+        """
+        assert output_fmt in ('NCHW', 'NLC'), 'Output format must be one of NCHW or NLC.'
+        assert aggregation in ('sparse', 'dense'), 'Aggregation must be one of sparse or dense.'
+        assert norm_alpha_scheme in ('none', 'pre-alpha', 'post-alpha'), \
+            f'Unsupported alpha scheme: {norm_alpha_scheme}'
+
+        is_batched = torch.is_tensor(x)
+        if is_batched:
+            assert x.ndim == 4, f'Expected 4D batched input, got {x.ndim}D'
+            images = list(x)
+        else:
+            images = list(x)
+
+        result = self._forward_intermediates_packed(
+            images,
+            indices=indices,
+            return_prefix_tokens=return_prefix_tokens,
+            norm=norm,
+            stop_early=stop_early,
+            output_fmt=output_fmt,
+            intermediates_only=intermediates_only,
+            aggregation=aggregation,
+            inter_feature_normalizer=inter_feature_normalizer,
+            norm_alpha_scheme=norm_alpha_scheme,
+        )
+
+        if is_batched:
+            result = _restack_batched(
+                result,
+                intermediates_only=intermediates_only,
+                return_prefix_tokens=return_prefix_tokens,
+            )
+
+        return result
+
+    def _forward_intermediates_packed(
+        self,
+        images: List[Tensor],
+        indices: Optional[Union[int, List[int], Tuple[int]]],
+        return_prefix_tokens: bool,
+        norm: bool,
+        stop_early: bool,
+        output_fmt: str,
+        intermediates_only: bool,
+        aggregation: Optional[str],
+        inter_feature_normalizer: Optional[IntermediateFeatureNormalizerBase],
+        norm_alpha_scheme: str,
+    ):
+        device = images[0].device
+        num_images = len(images)
+
+        x, grid_sizes = self.patch_embed(images)
+
+        re_packed = []
+        re_offset = 0
+
+        cu_seqlens, vitdet_cu_seqlens = [0], [self._zero_int32]
+        max_seqlen, vitdet_max_seqlen = 0, self.num_prefix_tokens
+
+        if self.vitdet_config is not None:
+            vitdet_full_patch_order = []
+            cls_patch_order = self._cls_patch_order
+            t_prefix_len = self._prefix_len_int32
+
+        for gs in grid_sizes:
+            num_patches = gs[0] * gs[1]
+            curr_slice = x[re_offset : re_offset + num_patches]
+
+            if self.num_prefix_tokens > 0:
+                assert self.cls_token is not None
+                re_packed.append(self.cls_token[0])
+
+                if self.vitdet_config is not None:
+                    vitdet_full_patch_order.append(cls_patch_order + vitdet_cu_seqlens[-1])
+                    vitdet_cu_seqlens.append(vitdet_cu_seqlens[-1] + t_prefix_len)
+
+            if self.vitdet_config is not None:
+                curr_slice, patch_order, wnd_cu_seqlens, max_window_ct = self._reorder_vitdet_packed(curr_slice, gs)
+                vitdet_max_seqlen = max(vitdet_max_seqlen, max_window_ct)
+                vitdet_full_patch_order.append(patch_order + vitdet_cu_seqlens[-1])
+                vitdet_cu_seqlens.extend(vitdet_cu_seqlens[-1] + wnd_cu_seqlens)
+
+            re_packed.append(curr_slice)
+            re_offset += num_patches
+
+            max_seqlen = max(max_seqlen, num_patches + self.num_prefix_tokens)
+            cu_seqlens.append(cu_seqlens[-1] + num_patches + self.num_prefix_tokens)
+
+        if re_packed:
+            x = torch.cat(re_packed, dim=0)
+
+        position_ids = self._create_position_ids(grid_sizes, device)
+
+        if self.vitdet_config is not None:
+            vitdet_cu_seqlens_tensor = torch.stack(vitdet_cu_seqlens).int()
+            vitdet_full_patch_order = torch.cat(vitdet_full_patch_order)
+            position_ids = position_ids[vitdet_full_patch_order]
+
+        x = self.norm_pre(x)
+
+        _cu_seqlens_host = torch.tensor(cu_seqlens, dtype=torch.int32, pin_memory=True)
+        cu_seqlens_tensor = torch.empty_like(_cu_seqlens_host, device=device)
+        cu_seqlens_tensor.copy_(_cu_seqlens_host, non_blocking=True)
+
+        attn_info = {'cu_seqlens': cu_seqlens_tensor, 'max_seqlen': max_seqlen}
+        attn_info_vitdet = None
+        if self.vitdet_config is not None:
+            attn_info_vitdet = {
+                'cu_seqlens': vitdet_cu_seqlens_tensor,
+                'max_seqlen': vitdet_max_seqlen,
+            }
+
+        take_indices, max_index = _take_indices(len(self.blocks), indices)
+        take_indices = sorted(take_indices)
+
+        if stop_early:
+            blocks_iter = list(self.blocks)[:max_index + 1]
+        else:
+            blocks_iter = self.blocks
+
+        if inter_feature_normalizer is None or norm_alpha_scheme == 'none':
+            inter_feature_normalizer = NullIntermediateFeatureNormalizer.get_instance(x.dtype, x.device)
+
+        post_alpha = (norm_alpha_scheme == 'post-alpha')
+
+        def _normalize(t, block_idx, rot_idx):
+            # Normalizer expects ndim >= 3; flat tokens are (N, C). Unsqueeze and squeeze.
+            t3 = t.unsqueeze(0)
+            y, alpha = inter_feature_normalizer(t3, block_idx, rot_index=rot_idx, skip=0)
+            y = y.squeeze(0)
+            if torch.is_tensor(alpha) and alpha.ndim >= 2:
+                alpha = alpha.reshape(alpha.shape[-2], alpha.shape[-1])
+            return y, alpha
+
+        intermediates_flat: List[Tensor] = []
+        accumulator = 0
+        alpha_sum = 0
+        num_accumulated = 0
+        take_off = 0
+
+        for i, block in enumerate(blocks_iter):
+            if self.vitdet_config is not None and i not in self.vitdet_config.global_attn_indices:
+                x = block(x, position_ids=position_ids, attn_info=attn_info_vitdet)
+            else:
+                x = block(x, position_ids=position_ids, attn_info=attn_info)
+
+            if aggregation == 'dense':
+                y, alpha = _normalize(x, i, take_indices[take_off])
+                if post_alpha:
+                    accumulator = accumulator + y
+                    alpha_sum = alpha_sum + alpha
+                else:
+                    accumulator = accumulator + alpha * y
+                    alpha_sum += 1
+                num_accumulated += 1
+
+            if i == take_indices[take_off]:
+                if aggregation == 'dense':
+                    alpha = alpha_sum / num_accumulated
+                    x_ = alpha * accumulator / num_accumulated
+                    num_accumulated = 0
+                    accumulator = 0
+                    alpha_sum = 0
+                else:
+                    y, alpha = _normalize(x, i, i)
+                    x_ = alpha * y
+                intermediates_flat.append(self.norm_post(x_) if norm else x_)
+                take_off = min(take_off + 1, len(take_indices) - 1)
+
+        x_final = self.norm_post(x)
+        mat_dim = self._sample_matryoshka_dim()
+        x_final = self._matryoshka_truncate(x_final, mat_dim)
+        intermediates_flat = [self._matryoshka_truncate(y, mat_dim) for y in intermediates_flat]
+
+        if self.vitdet_config is not None:
+            scatter_idx = vitdet_full_patch_order.reshape(-1, 1)
+
+            def _unshuffle(y: Tensor) -> Tensor:
+                out = torch.zeros_like(y)
+                return torch.scatter(out, dim=0, index=scatter_idx.expand(-1, y.shape[1]), src=y)
+
+            x_final = _unshuffle(x_final)
+            intermediates_flat = [_unshuffle(y) for y in intermediates_flat]
+            if self.pool_type == 'attn':
+                pool_position_ids = _unshuffle(position_ids)
+            else:
+                pool_position_ids = None
+        else:
+            pool_position_ids = position_ids if self.pool_type == 'attn' else None
+
+        if self.pool_type == 'attn':
+            pool_attn_info = {
+                'cu_seqlens_kv': cu_seqlens_tensor,
+                'max_seqlen_kv': max_seqlen,
+            }
+            summary = self.attn_pool(x_final, mem_position_ids=pool_position_ids, cross_attn_info=pool_attn_info)
+            cls_tokens_list_final: List[Tensor] = []
+        else:
+            summary = None
+            cls_tokens_list_final = []
+
+        features_list_final: List[Tensor] = []
+        for i in range(num_images):
+            start = cu_seqlens[i]
+            end = cu_seqlens[i + 1]
+            curr = x_final[start:end]
+            if self.num_cls_tokens > 0:
+                cls_tokens_list_final.append(curr[:self.num_cls_tokens])
+            features_list_final.append(curr[self.num_prefix_tokens:])
+
+        if self.pool_type == 'cls_token':
+            assert cls_tokens_list_final
+            summary = torch.stack(cls_tokens_list_final, dim=0)
+
+        intermediates_layers_feats: List[List[Tensor]] = []
+        intermediates_layers_prefix: List[List[Tensor]] = []
+        for y in intermediates_flat:
+            per_img_feats: List[Tensor] = []
+            per_img_prefix: List[Tensor] = []
+            for i in range(num_images):
+                start = cu_seqlens[i]
+                end = cu_seqlens[i + 1]
+                curr = y[start:end]
+                if return_prefix_tokens:
+                    per_img_prefix.append(curr[:self.num_cls_tokens])
+                per_img_feats.append(curr[self.num_prefix_tokens:])
+            intermediates_layers_feats.append(per_img_feats)
+            intermediates_layers_prefix.append(per_img_prefix)
+
+        if output_fmt == 'NCHW':
+            reshaped_layers: List[List[Tensor]] = []
+            for layer_feats in intermediates_layers_feats:
+                per_img: List[Tensor] = []
+                for img_idx, feat in enumerate(layer_feats):
+                    gh, gw = grid_sizes[img_idx]
+                    per_img.append(
+                        feat.reshape(gh, gw, -1).permute(2, 0, 1).contiguous()
+                    )
+                reshaped_layers.append(per_img)
+            intermediates_layers_feats = reshaped_layers
+
+        if return_prefix_tokens:
+            intermediates_out: List[List[Any]] = [
+                [(p, f) for p, f in zip(prefix_layer, feat_layer)]
+                for prefix_layer, feat_layer in zip(intermediates_layers_prefix, intermediates_layers_feats)
+            ]
+        else:
+            intermediates_out = intermediates_layers_feats
+
+        if intermediates_only:
+            return intermediates_out
+
+        return (summary, features_list_final), intermediates_out
 
     def _forward_packed(
         self,
