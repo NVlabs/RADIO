@@ -67,20 +67,8 @@ def main(rank: int = 0, world_size: int = 1):
     parser.add_argument('--eval-split', default='validation',
                         help='The evaluation split to use. If labels are present, accuracy will be computed'
     )
-    parser.add_argument('--batch-size', type=int, default=32,
+    parser.add_argument('--batch-size', type=int, default=128,
                         help='The batch size. If the input is variable sized, then this argument becomes a maximum.'
-    )
-    parser.add_argument('--max-train-samples', type=int, default=None,
-                        help='Maximum number of training samples to use (for memory efficiency). Default: use all'
-    )
-    parser.add_argument('--max-eval-samples', type=int, default=None,
-                        help='Maximum number of eval samples to use (for memory efficiency). Default: use all'
-    )
-    parser.add_argument('--start-index', type=int, default=0,
-                        help='Starting index to test (inclusive). Default: 0'
-    )
-    parser.add_argument('--end-index', type=int, default=None,
-                        help='Ending index to test (exclusive). Default: None (test all available indices)'
     )
     parser.add_argument('-w', '--workers', default=8, type=int,
                         help='The number of data loader workers to use per GPU'
@@ -112,7 +100,8 @@ def main(rank: int = 0, world_size: int = 1):
     rank_print('Loading model...')
     model, preprocessor, info = load_model(args.model_version, vitdet_window_size=args.vitdet_window_size,
                                            adaptor_names=args.adaptor_name, force_reload=args.force_reload,
-                                           torchhub_repo=args.torchhub_repo, use_huggingface=args.use_huggingface, neck_name=args.neck)
+                                           torchhub_repo=args.torchhub_repo, use_huggingface=args.use_huggingface,
+                                           neck_name=args.neck)
     model.to(device=device).eval()
     rank_print('Done')
 
@@ -169,103 +158,34 @@ def main(rank: int = 0, world_size: int = 1):
 
     # First, create a database of training embeddings with their corresponding labels
     # We only store 1/world_size training embeddings
-    # Create list of indices to test based on CLI arguments
-    start_idx = args.start_index
-    end_idx = args.end_index if args.end_index is not None else 256
-
-    indices_to_test = list(range(start_idx, end_idx))
-    max_index_needed = max(indices_to_test) + 1
-
-    rank_print(f'Testing indices {start_idx} to {end_idx-1} ({len(indices_to_test)} total)')
-    rank_print(f'Will extract features up to index {max_index_needed-1}')
-
-    # Adjust num_steps if max samples specified
-    if args.max_train_samples:
-        max_train_per_rank = args.max_train_samples // world_size
-        num_train_steps = min(num_train_steps, round_up(max_train_per_rank, args.batch_size))
-        rank_print(f'Limiting train samples to ~{args.max_train_samples} total (~{max_train_per_rank} per rank)')
-
-    if args.max_eval_samples:
-        max_eval_per_rank = args.max_eval_samples // world_size
-        num_eval_steps = min(num_eval_steps, round_up(max_eval_per_rank, args.batch_size))
-        rank_print(f'Limiting eval samples to ~{args.max_eval_samples} total (~{max_eval_per_rank} per rank)')
-
-    # Build database for only the indices we need (memory efficient)
-    # Extract indices from start_idx to end_idx only
-    rank_print(f'Building {args.train_split} database for indices {start_idx} to {end_idx-1}...')
-    train_embeddings_all, train_labels = _build_database(
-        train_dataset, model, device, num_train_steps, rank,
-        amp=args.amp, adaptor=args.adaptor_name,
-        num_indices=max_index_needed, start_index=start_idx
-    )
+    rank_print(f'Building {args.train_split} database...')
+    train_embeddings, train_labels = _build_database(train_dataset, model, device, num_train_steps, rank, amp=args.amp, adaptor=args.adaptor_name)
 
     # Gather all of the eval labels onto all of the ranks
-    rank_print(f'Building {args.eval_split} database for indices {start_idx} to {end_idx-1}...')
-    eval_embeddings_all, eval_labels = _build_database(
-        eval_dataset, model, device, num_eval_steps, rank,
-        amp=args.amp, adaptor=args.adaptor_name,
-        num_indices=max_index_needed, start_index=start_idx
-    )
+    rank_print(f'Building {args.eval_split} database...')
+    eval_embeddings, eval_labels = _build_database(eval_dataset, model, device, num_eval_steps, rank, amp=args.amp, adaptor=args.adaptor_name)
     num_valid = eval_labels.shape[0]
 
-    rank_print(f'Train embeddings shape: {train_embeddings_all.shape}')  # [num_train, num_indices_in_range, feature_dim]
-    rank_print(f'Eval embeddings shape: {eval_embeddings_all.shape}')    # [num_eval, num_indices_in_range, feature_dim]
+    rank_print('Calculating accuracy...')
+    knn_top1 = _knn_top1_accuracy(
+        train_split_embeddings=train_embeddings,
+        train_split_labels=train_labels,
+        output=eval_embeddings,
+        target=eval_labels,
+        distributed=world_size > 1,
+        num_classes=num_classes,
+        num_valid=num_valid,
+        K=args.k,
+    )
 
-    # Now loop through each index and calculate accuracy
-    rank_print('Calculating accuracy for each index...')
-    results = []
+    total_num_eval = torch.tensor(num_valid, dtype=torch.int64, device=device)
+    if world_size > 1:
+        dist.reduce(total_num_eval, dst=0, op=dist.ReduceOp.SUM)
+        dist.reduce(knn_top1, dst=0, op=dist.ReduceOp.SUM)
 
-    for idx in tqdm(indices_to_test, disable=rank > 0):
-        # Map absolute index to relative index in the extracted range
-        relative_idx = idx - start_idx
-        # Extract embeddings for this specific index and convert to float32
-        train_embeddings = train_embeddings_all[:, relative_idx, :].float().to(device)
-        eval_embeddings = eval_embeddings_all[:, relative_idx, :].float().to(device)
+    accuracy = 100 * knn_top1.item() / total_num_eval.item()
 
-        knn_top1 = _knn_top1_accuracy(
-            train_split_embeddings=train_embeddings,
-            train_split_labels=train_labels.to(device),
-            output=eval_embeddings,
-            target=eval_labels.to(device),
-            distributed=world_size > 1,
-            num_classes=num_classes,
-            num_valid=num_valid,
-            K=args.k,
-        )
-
-        total_num_eval = torch.tensor(num_valid, dtype=torch.int64, device=device)
-        if world_size > 1:
-            dist.reduce(total_num_eval, dst=0, op=dist.ReduceOp.SUM)
-            dist.reduce(knn_top1, dst=0, op=dist.ReduceOp.SUM)
-
-        accuracy = 100 * knn_top1.item() / total_num_eval.item()
-        results.append((idx, accuracy))
-
-        rank_print(f'Index {idx:3d}: Accuracy = {accuracy:.3f}%')
-
-    # Print summary
-    rank_print('\n' + '='*50)
-    rank_print(f'SUMMARY OF RESULTS (Indices {start_idx}-{end_idx-1})')
-    rank_print('='*50)
-    best_idx, best_acc = max(results, key=lambda x: x[1])
-    worst_idx, worst_acc = min(results, key=lambda x: x[1])
-    avg_acc = sum(acc for _, acc in results) / len(results)
-
-    rank_print(f'Index Range: {start_idx} to {end_idx-1}')
-    rank_print(f'Best Index: {best_idx} with Accuracy: {best_acc:.3f}%')
-    rank_print(f'Worst Index: {worst_idx} with Accuracy: {worst_acc:.3f}%')
-    rank_print(f'Average Accuracy: {avg_acc:.3f}%')
-    rank_print('='*50)
-
-    # Print individual results for all indices
-    rank_print(f'\nINDIVIDUAL RESULTS (Indices {start_idx}-{end_idx-1})')
-    rank_print('='*50)
-    rank_print(f'{"Index":<10} {"Accuracy (%)":<15}')
-    rank_print('-'*50)
-    for idx, accuracy in results:
-        marker = ' *BEST*' if idx == best_idx else (' *WORST*' if idx == worst_idx else '')
-        rank_print(f'{idx:<10} {accuracy:<15.3f}{marker}')
-    rank_print('='*50)
+    rank_print(f'Accuracy: {accuracy:.3f}%')
 
     if rank == 0 and args.csv_out:
         with open(args.csv_out, 'a') as fd:
@@ -419,24 +339,11 @@ def _knn_top1_accuracy(
 
 
 @torch.no_grad()
-def _build_database(dataset, model: nn.Module, device: torch.device, num_steps: int, rank: int, amp: bool = True, adaptor: str = None, num_indices: int = 144, start_index: int = 0):
-    """
-    Build database for a range of indices (start_index to num_indices-1).
-    Returns embeddings stored on CPU in half precision to save memory.
-
-    Args:
-        start_index: Starting index to extract (inclusive)
-        num_indices: Ending index to extract (exclusive, i.e., extract up to num_indices-1)
-    """
-    embeddings = []  # List of tensors, each of shape [batch_size, num_indices_in_range, feature_dim]
+def _build_database(dataset, model: nn.Module, device: torch.device, num_steps: int, rank: int, amp: bool = True, adaptor: str = None):
+    embeddings = []
     db_labels = []
-    steps_processed = 0
-
     for batches in tqdm(dataset, total=num_steps, disable=rank > 0):
         for batch in batches:
-            if steps_processed >= num_steps:
-                break
-
             images = batch[0].to(device=device, non_blocking=True)
             labels = batch[1].to(device=device, non_blocking=True)
 
@@ -447,30 +354,12 @@ def _build_database(dataset, model: nn.Module, device: torch.device, num_steps: 
                 else:
                     summary, features = output[adaptor]
 
-            #print(f"summary.shape: {summary.shape}")
-            #print(f"features.shape: {features.shape}")
+            summary = F.normalize(summary, p=2, dim=1)
 
-            # Extract features for the specified range of indices [batch_size, num_indices_in_range, feature_dim]
-            # This extracts indices from start_index to num_indices-1
-            batch_features = features[:, start_index:num_indices]
+            embeddings.append(summary)
+            db_labels.append(labels)
 
-            # Normalize each feature vector
-            batch_features = F.normalize(batch_features, p=2, dim=2)
-
-            # Move to CPU in half precision to save memory
-            embeddings.append(batch_features.cpu().half())
-            db_labels.append(labels.cpu())
-
-            steps_processed += 1
-
-        if steps_processed >= num_steps:
-            break
-
-    # Concatenate all batches: [total_samples, num_indices_in_range, feature_dim]
-    all_embeddings = torch.cat(embeddings, dim=0)
-    all_labels = torch.cat(db_labels, dim=0)
-
-    return all_embeddings, all_labels
+    return torch.cat(embeddings, dim=0), torch.cat(db_labels, dim=0)
 
 
 if __name__ == '__main__':
