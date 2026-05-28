@@ -1,5 +1,4 @@
 from distutils.version import LooseVersion
-import math
 from types import MethodType
 from typing import List, Optional, Tuple, Union
 import warnings
@@ -7,20 +6,12 @@ import warnings
 import torch
 from torch import nn
 import torch.nn.functional as F
-from torch.nn.init import xavier_normal_
 
 try:
     from timm.models import register_model
 except ImportError:
     from timm.models.registry import register_model
 from timm.data.constants import IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD
-
-from timm.models.vision_transformer import (
-    VisionTransformer,
-    Mlp,
-    Attention,
-    _create_vision_transformer as _timm_create_vision_transformer
-)
 
 from .forward_intermediates import forward_intermediates
 from .input_conditioner import InputConditioner
@@ -216,49 +207,3 @@ def dino_v2_l_student(**kwargs):
 @register_model
 def dino_v2_g_student(**kwargs):
     return _dino_student('dinov2_vitg14_reg', **kwargs)
-
-
-def magneto_init(model: VisionTransformer, num_blocks: int = None):
-    '''
-    Initialization following [Magneto](http://arxiv.org/abs/2210.06423)
-    '''
-    # model.cuda()
-
-    attention_modules = [m for m in model.modules() if isinstance(m, Attention)]
-    mlp_modules = [m for m in model.modules() if isinstance(m, Mlp)]
-
-    if num_blocks is None:
-        num_blocks = len(model.blocks)
-    gamma = math.sqrt(math.log(2 * num_blocks))
-
-    for m in attention_modules:
-        qkv = m.qkv
-        q, k, v = qkv.weight.data.chunk(3, dim=0)
-        xavier_normal_(q, gain=1)
-        xavier_normal_(k, gain=1)
-        xavier_normal_(v, gain=gamma)
-        xavier_normal_(m.proj.weight.data, gain=gamma)
-
-    for m in mlp_modules:
-        xavier_normal_(m.fc1.weight.data, gain=gamma)
-        xavier_normal_(m.fc2.weight.data, gain=gamma)
-
-
-def _init_layerscale(model: VisionTransformer):
-    for i, block in enumerate(model.blocks):
-        ls = 1 / math.sqrt(i + 1)
-        block.ls1.gamma.data.fill_(ls)
-        block.ls2.gamma.data.fill_(ls)
-
-@register_model
-def vit_so400m_patch16_224(pretrained=False, **kwargs) -> VisionTransformer:
-    """ ViT model matching the architecture of the So400M model from
-    "Scaling Vision Transformers to 400 Million Parameters" (https://arxiv.org/abs/2302.05442).
-    """
-    if pretrained:
-        raise ValueError('There is no pretrained weights for vit_so400m_patch16_224')
-    mlp_ratio = 4304 / 1152
-
-    model_args = dict(patch_size=16, embed_dim=1152, depth=27, num_heads=18, mlp_ratio=mlp_ratio)
-    model = _timm_create_vision_transformer('vit_so400m_patch16_224', pretrained=pretrained, **dict(model_args, **kwargs))
-    return model

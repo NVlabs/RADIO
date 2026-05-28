@@ -106,8 +106,6 @@ def main(rank: int = 0, world_size: int = 1):
     parser.add_argument('--csv-out', type=str, default=None,
                         help='Append the kNN accuracy to the specified csv')
     parser.add_argument('--neck', default=None, type=str, help='Generate features from specified neck')
-    parser.add_argument('--csv-out', type=str, default=None,
-                        help='Append the kNN accuracy to the specified csv')
 
     args, _ = parser.parse_known_args()
 

@@ -128,6 +128,28 @@ print(sim)
 
 We also demonstrate how to use C-RADIOv4 to replace the vision encoder in SAM3 here: https://github.com/mranzinger/sam3-radio/blob/main/demo_sam3_radio.py
 
+## RADIO1D (Research)
+
+RADIO1D is a Vision Transformer variant that compresses spatial tokens into a variable-length 1D sequence of "global tokens" during encoding, and reconstructs the full spatial resolution via a decoder. The number of tokens can be chosen at inference time, providing a tunable trade-off between feature compactness and reconstruction fidelity.
+
+A RADIO1D model exposes two named "necks":
+- `encoder` — the compressed 1D global tokens, shape `(B, num_tokens, C)`
+- `decoder` — the spatially-reconstructed features, shape `(B, H*W, C)`
+
+Two new arguments on `radio_model()` / `RADIOModel.forward()` plumb this through:
+- `num_tokens: Optional[int]` — number of tokens to keep in the 1D encoder output (default: model's max).
+- `neck_name: Optional[str]` — which neck's output to return (default: returns a dict of all necks for multi-neck models).
+
+You can qualitatively visualize the trade-off by sweeping `num_tokens` over a single image with [`examples/visualize_features.py`](./examples/visualize_features.py):
+
+```bash
+python examples/visualize_features.py -v <radio1d_checkpoint> -d <image_dir> \
+    --neck decoder --animate-radio1d \
+    --radio1d-start 1 --radio1d-end 512 --radio1d-step 32
+```
+
+Pretrained checkpoints are not yet released.
+
 ## Older Models
 
 C-RADIOv3 Model Family ([Commercially Permissive](https://developer.download.nvidia.com/licenses/nvidia-open-model-license-agreement-june-2024.pdf))

@@ -1734,8 +1734,6 @@ def magneto_init(model: VisionTransformer, num_blocks: int = None):
     '''
     Initialization following [Magneto](http://arxiv.org/abs/2210.06423)
     '''
-    # model.cuda()
-
     attention_modules = [m for m in model.modules() if isinstance(m, Attention)]
     mlp_modules = [m for m in model.modules() if isinstance(m, Mlp)]
 
@@ -1768,9 +1766,8 @@ def _init_layerscale(model: VisionTransformer):
             block.reduction.weight.data.fill_(ls)
 
 
-def _create_vision_transformer(name, *args, pretrained=False, **kwargs):
-    #model = RADIO1D(*args, **kwargs)
-    model = build_model_with_cfg(RADIO1D, name, pretrained=pretrained, **dict(args, **kwargs))
+def _create_vision_transformer(name, pretrained=False, **kwargs):
+    model = build_model_with_cfg(RADIO1D, name, pretrained=pretrained, **kwargs)
     if not pretrained:
         magneto_init(model)
         if kwargs.get('init_values', None) == -1234:

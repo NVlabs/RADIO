@@ -201,7 +201,6 @@ class RADIOModel(nn.Module):
         if self._neck_name is not None:
             if not self._neck_name in y:
                 raise ValueError(f"Neck {self._neck_name} not found in model. Available necks: {y.keys()}")
-            self._cache_y = y
             y = y[self._neck_name]
         if isinstance(y, dict):
             ret = {k: self._extract_final(x, v, feature_fmt=feature_fmt) for k, v in y.items()}

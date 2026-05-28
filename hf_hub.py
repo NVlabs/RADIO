@@ -301,9 +301,11 @@ def main():
         f"Intermediates inference returned ",
         f"features with shape={intermediates[0].features.shape} and std={intermediates[0].features.std().item():.3}",
     )
-    # assert torch.allclose(intermediates[0].features, hf_output["backbone"].features, atol=1e-4)
 
-    # Infer using TorchHub model.
+    # Load the TorchHub model directly from the local hubconf rather than via
+    # `torch.hub.load(args.torchhub_repo, ...)`. This makes the script self-contained:
+    # it always validates the local checkpoint against the local hubconf, instead of
+    # against whatever revision happens to be on the configured TorchHub remote.
     print("Infer using TorchHub model...")
     from hubconf import radio_model as load_radio_model
     torchhub_model = load_radio_model(
