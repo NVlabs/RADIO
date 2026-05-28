@@ -33,6 +33,7 @@ def radio_model(
     adaptor_names: Union[str, List[str]] = None,
     vitdet_window_size: Optional[int] = None,
     return_checkpoint: bool = False,
+    use_ema: bool = True,
     **kwargs,
 ) -> RADIOModel:
     if not version:
@@ -52,7 +53,7 @@ def radio_model(
                 "Please set it to None or use a different version."
             )
 
-    if "state_dict_ema" in chk:
+    if use_ema and "state_dict_ema" in chk:
         state_dict = chk["state_dict_ema"]
         chk['args'].spectral_reparam = False
         chk['args'].spectral_heads = False
