@@ -1304,6 +1304,26 @@ class NaViT(nn.Module):
         else:
             self.cls_token = None
 
+        # Small per-iter scratch tensors used in _forward_packed. Registered
+        # as buffers so they (a) auto-move to the model's device and (b) get
+        # created once instead of via `torch.tensor(scalar, device='cuda')`
+        # in the hot path — that pattern triggers a synchronous H2D from
+        # pageable host memory that blocks on cudaStreamSynchronize, draining
+        # the entire pending GPU queue (~240ms stall measured in profile).
+        self.register_buffer(
+            '_zero_int32', torch.zeros((), dtype=torch.int32), persistent=False
+        )
+        self.register_buffer(
+            '_prefix_len_int32',
+            torch.tensor(num_prefix_tokens, dtype=torch.int32),
+            persistent=False,
+        )
+        self.register_buffer(
+            '_cls_patch_order',
+            torch.arange(0, num_prefix_tokens, dtype=torch.int64),
+            persistent=False,
+        )
+
         # Pre-normalization
         self.norm_pre = nn.Identity()  # norm_layer(embed_dim)
 
@@ -1341,6 +1361,11 @@ class NaViT(nn.Module):
         ])
 
         self.norm_post = norm_layer(embed_dim, eps=1e-6, elementwise_affine=post_norm_affine)
+
+    @property
+    def max_size(self) -> Tuple[int, int]:
+        s = self.patch_size * 2048
+        return s, s
 
     def _sample_matryoshka_dim(self) -> int:
         """Sample a random matryoshka dimension during training, or return full dim."""
@@ -1410,12 +1435,15 @@ class NaViT(nn.Module):
         re_packed = []
         re_offset = 0
 
-        cu_seqlens, vitdet_cu_seqlens = [0], [torch.tensor(0, dtype=torch.int32, device=device)]
+        # Reuse pre-allocated buffers instead of `torch.tensor(scalar,
+        # device='cuda')` here — see __init__ comment for why this matters
+        # (synchronous H2D from pageable memory blocks on the GPU queue).
+        cu_seqlens, vitdet_cu_seqlens = [0], [self._zero_int32]
         max_seqlen, vitdet_max_seqlen = 0, self.num_prefix_tokens
         if self.vitdet_config is not None:
             vitdet_full_patch_order = []
-            cls_patch_order = torch.arange(0, self.num_prefix_tokens, dtype=torch.int64, device=device)
-            t_prefix_len = torch.tensor(self.num_prefix_tokens, dtype=torch.int32, device=device)
+            cls_patch_order = self._cls_patch_order
+            t_prefix_len = self._prefix_len_int32
 
         for gs in grid_sizes:
             num_patches = gs[0] * gs[1]
@@ -1457,8 +1485,13 @@ class NaViT(nn.Module):
         # Apply pre-normalization
         x = self.norm_pre(x)
 
-        # Prepare attention info for Flash Attention
-        cu_seqlens_tensor = torch.tensor(cu_seqlens, dtype=torch.int32, device=device)
+        # Prepare attention info for Flash Attention.
+        # Stage through pinned host memory + non_blocking copy so the H2D
+        # is truly async — `torch.tensor(list, device='cuda')` from pageable
+        # memory would synchronize on the GPU stream.
+        _cu_seqlens_host = torch.tensor(cu_seqlens, dtype=torch.int32, pin_memory=True)
+        cu_seqlens_tensor = torch.empty_like(_cu_seqlens_host, device=device)
+        cu_seqlens_tensor.copy_(_cu_seqlens_host, non_blocking=True)
 
         attn_info = {
             'cu_seqlens': cu_seqlens_tensor,
@@ -1647,7 +1680,14 @@ class NaViT(nn.Module):
 
         reordered_tokens = tokens[patch_order]
 
-        seq_lens = torch.bincount(flat_window_idx, minlength=num_windows_h * num_windows_w)
+        # `torch.bincount` on CUDA does a synchronous D2H copy to determine
+        # the output size (even with minlength set), blocking the CPU for
+        # ~150ms in the profile while the GPU drains. scatter_add_ on a
+        # pre-allocated output produces the same per-window counts without
+        # any D2H.
+        num_windows = num_windows_h * num_windows_w
+        seq_lens = torch.zeros(num_windows, dtype=torch.int64, device=flat_window_idx.device)
+        seq_lens.scatter_add_(0, flat_window_idx, torch.ones_like(flat_window_idx))
         cu_seqlens = seq_lens.cumsum(dim=0, dtype=torch.int32)
 
         max_window_ct = min(grid_h, window_size) * min(grid_w, window_size)
