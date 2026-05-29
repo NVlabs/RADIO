@@ -95,6 +95,7 @@ def main(rank: int = 0, world_size: int = 1):
     parser.add_argument('--templates', default='openai', choices=['openai', 'simple', 'base'],
                         help='Which set of templates to use'
     )
+    parser.add_argument('--neck', default=None, type=str, help='Generate features from specified neck')
 
     parser.add_argument('--drop-span', type=int, nargs='+', default=None)
     parser.add_argument('--invalidate-cache', default=False, action='store_true')
@@ -104,7 +105,7 @@ def main(rank: int = 0, world_size: int = 1):
     rank_print('Loading model...')
     model, preprocessor, info = load_model(args.model_version, adaptor_names=args.adaptor_name, return_spatial_features=False,
                                            vitdet_window_size=args.vitdet_window_size, force_reload=args.force_reload,
-                                           torchhub_repo=args.torchhub_repo, use_huggingface=args.use_huggingface)
+                                           torchhub_repo=args.torchhub_repo, use_huggingface=args.use_huggingface, neck_name=args.neck)
     model.to(device=device).eval()
     rank_print('Done')
 

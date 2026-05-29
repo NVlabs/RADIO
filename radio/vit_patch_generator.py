@@ -174,13 +174,18 @@ class ViTPatchGenerator(nn.Module):
                     batch_size: int,
                     patch_idxs: Optional[torch.Tensor] = None,
                     input_size: Optional[Tuple[int, int]] = None,
+                    flatten: bool = True,
     ) -> torch.Tensor:
         if input_size is None:
             input_dims = self.input_dims
         else:
             input_dims = tuple(d // self.patch_size for d in input_size)
 
-        pos_embed = self._get_pos_embeddings(batch_size, input_dims)
+        pos_embed = self._get_pos_embeddings(batch_size, input_dims, flatten=flatten)
+
+        if not flatten and pos_embed.ndim == 3:
+            pos_embed = rearrange(pos_embed, 'b (h w) c -> b c h w', h=input_dims[0], w=input_dims[1])
+
 
         if patch_idxs is None:
             return pos_embed
@@ -191,7 +196,7 @@ class ViTPatchGenerator(nn.Module):
         return pos_embed
 
 
-    def _get_pos_embeddings(self, batch_size: int, input_dims: Tuple[int, int]):
+    def _get_pos_embeddings(self, batch_size: int, input_dims: Tuple[int, int], flatten: bool = True):
         if (self.num_rows, self.num_cols) == input_dims:
             return self.pos_embed
 
@@ -262,7 +267,8 @@ class ViTPatchGenerator(nn.Module):
         if pos_embed.shape[-2:] != input_dims:
             pos_embed = F.interpolate(pos_embed.float(), size=input_dims, align_corners=False, mode='bilinear').to(pos_embed.dtype)
 
-        pos_embed = pos_embed.flatten(2).permute(0, 2, 1)
+        if flatten:
+            pos_embed = pos_embed.flatten(2).permute(0, 2, 1)
 
         return pos_embed
 

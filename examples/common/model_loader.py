@@ -51,11 +51,16 @@ class DinoWrapper(nn.Module):
     def vision_encoder(self):
         return self.inner
 
-    def forward(self, *args, **kwargs):
-        parts = self.inner.forward_features(*args, **kwargs)
+    def forward(self, x, *args, feature_fmt: str = 'NLC', **kwargs):
+        parts = self.inner.forward_features(x, *args, **kwargs)
 
         cls_token = parts['x_norm_clstoken']
         features = parts['x_norm_patchtokens']
+
+        if feature_fmt == 'NCHW':
+            features = (features.reshape(features.shape[0], x.shape[-2] // self.patch_size, x.shape[-1] // self.patch_size, features.shape[2])
+                                .permute(0, 3, 1, 2)
+            )
 
         return cls_token, features
 
@@ -332,7 +337,7 @@ class ModelInfo:
 # and once it completes, it allows all other ranks to execute, using the now cached weights.
 @rank_gate
 def load_model(version: str, adaptor_names: str = None, use_huggingface: bool = False, use_local_lib: bool = True,
-               device: torch.device = None, return_spatial_features: bool = True, force_reload: bool = False,
+               device: torch.device = None, return_spatial_features: bool = True, force_reload: bool = False, neck_name: str = None,
                torchhub_repo="NVlabs/RADIO", **kwargs):
     kwargs = {k: v for k, v in kwargs.items() if v is not None}
 
@@ -351,12 +356,12 @@ def load_model(version: str, adaptor_names: str = None, use_huggingface: bool = 
             model: nn.Module = AutoModel.from_pretrained(hf_repo, config=config, trust_remote_code=True, **kwargs)
         elif use_local_lib:
             from hubconf import radio_model
-            model, chk = radio_model(version=version, progress=True, adaptor_names=adaptor_names, return_checkpoint=True, **kwargs)
+            model, chk = radio_model(version=version, progress=True, adaptor_names=adaptor_names, return_checkpoint=True, neck_name=neck_name, **kwargs)
         else:
             model, chk = torch.hub.load(torchhub_repo, 'radio_model', version=version, progress=True,
                                               adaptor_names=adaptor_names, return_spatial_features=return_spatial_features,
                                               force_reload=force_reload,
-                                              return_checkpoint=True, **kwargs,
+                                              return_checkpoint=True, neck_name=neck_name, **kwargs,
             )
 
         preprocessor = model.make_preprocessor_external()

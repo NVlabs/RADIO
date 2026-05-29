@@ -31,6 +31,7 @@ def radio_model(
     version: str = "",
     progress: bool = True,
     adaptor_names: Union[str, List[str]] = None,
+    neck_name: Optional[str] = None,
     vitdet_window_size: Optional[int] = None,
     return_checkpoint: bool = False,
     **kwargs,
@@ -176,6 +177,7 @@ def radio_model(
         window_size=vitdet_window_size,
         preferred_resolution=resource.preferred_resolution,
         adaptors=adaptors,
+        neck_name=neck_name,
         feature_normalizer=feature_normalizer,
         inter_feature_normalizer=inter_feature_normalizer,
     )

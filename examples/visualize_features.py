@@ -33,6 +33,7 @@ from datasets.distributed import split_dataset_by_node
 
 from common import rank_print, load_model, get_standard_transform, collate
 from radio.input_conditioner import InputConditioner
+from radio.radio_model import RadioOutput
 
 try:
     import wandb
@@ -69,7 +70,7 @@ def main(rank: int = 0, world_size: int = 1):
     parser.add_argument('-v', '--model-version', default='radio_v2',
                         help='Which radio model to load.'
     )
-    parser.add_argument('-d', '--dataset', default='imagenet-1k',
+    parser.add_argument('-d', '--dataset', default='detection-datasets/coco',
                         help='The name of the dataset to classify'
     )
     parser.add_argument('--split', default='train',
@@ -110,6 +111,12 @@ def main(rank: int = 0, world_size: int = 1):
                         choices=['sparse', 'dense'])
     parser.add_argument('--interpolation', default='bilinear', type=str, help='Interpolation mode')
     parser.add_argument('--skip', default=0, type=int, help='Skip the first N components')
+    parser.add_argument('--neck', default=None, type=str, help='Generate features from specified neck')
+    parser.add_argument('--animate-radio1d', action='store_true', help='Create animated PNGs sweeping radio1d_size')
+    parser.add_argument('--radio1d-start', default=1, type=int, help='Starting radio1d_size for animation')
+    parser.add_argument('--radio1d-end', default=512, type=int, help='Ending radio1d_size for animation')
+    parser.add_argument('--radio1d-step', default=32, type=int, help='Step size for radio1d_size sweep')
+    parser.add_argument('--animation-duration', default=100, type=int, help='Duration of each frame in ms')
 
     args, _ = parser.parse_known_args()
 
@@ -127,7 +134,7 @@ def main(rank: int = 0, world_size: int = 1):
                 break
 
     model, preprocessor, info = load_model(args.model_version, vitdet_window_size=args.vitdet_window_size, adaptor_names=args.adaptor_name,
-                                           torchhub_repo=args.torchhub_repo)
+                                           torchhub_repo=args.torchhub_repo, neck_name=args.neck)
     model.to(device=device).eval()
     if isinstance(preprocessor, nn.Module):
         preprocessor.to(device).eval()
@@ -160,7 +167,7 @@ def main(rank: int = 0, world_size: int = 1):
         dataset = ds_builder.as_dataset(split=args.split)
         dataset = dataset.to_iterable_dataset(num_shards=world_size * max(1, args.workers))
         dataset = split_dataset_by_node(dataset, rank=rank, world_size=world_size)
-        dataset = dataset.map(lambda ex: dict(image=transform(ex['image']), label=torch.as_tensor(ex['label'], dtype=torch.int64)))
+        dataset = dataset.map(lambda ex: dict(image=transform(ex['image']), label=torch.zeros(1, dtype=torch.int64)))
         rank_print(f'Description: {ds_builder.info.description}')
     else:
         dataset = ImageFolder(args.dataset, transform=transform)
@@ -183,15 +190,202 @@ def main(rank: int = 0, world_size: int = 1):
     for d in dirs.values():
         os.makedirs(d, exist_ok=True)
 
+    if args.animate_radio1d:
+        # Create animation directories
+        anim_dirs = dict(
+            viz=os.path.join(args.output_dir, 'anim_viz'),
+            sbs=os.path.join(args.output_dir, 'anim_sbs'),
+            grid=os.path.join(args.output_dir, 'anim_grid'),
+        )
+        for d in anim_dirs.values():
+            os.makedirs(d, exist_ok=True)
+
+        process_with_animation(
+            loader, model, preprocessor, device, args, dirs, anim_dirs
+        )
+    else:
+        # Original behavior
+        ctr = 0
+
+        for batches in loader:
+            if ctr >= args.n:
+                break
+
+            for images, _ in batches:
+                images = images.to(device=device, non_blocking=True)
+
+                all_feat = []
+                with torch.autocast(device.type, dtype=torch.bfloat16):
+                    p_images = preprocessor(images)
+
+                    if args.intermediates:
+                        outputs = model.forward_intermediates(
+                            p_images,
+                            indices=args.intermediates,
+                            return_prefix_tokens=False,
+                            norm=False,
+                            stop_early=True,
+                            output_fmt='NCHW',
+                            intermediates_only=True,
+                            aggregation=args.intermediate_aggregation,
+                            norm_alpha_scheme="none",
+                        )
+                        assert args.adaptor_name is None
+                        all_feat = outputs
+                    else:
+                        kwargs = {}
+                        if args.neck == "encoder":
+                            all_tokens = math.prod(p_images.shape[-2:]) // (4 * model.patch_size ** 2)
+                            # Assuming 1D encoder with 2x2 downsampling.
+                            kwargs['num_tokens'] = all_tokens
+                            output = model(p_images, feature_fmt='NLC', **kwargs)
+                            features = output.features.reshape(
+                                output.features.shape[0],
+                                p_images.shape[-2] // model.patch_size // 2,
+                                p_images.shape[-1] // model.patch_size // 2,
+                                output.features.shape[2]).permute(0, 3, 1, 2)
+                            output = RadioOutput(output.summary, features)
+                        else:
+                            output = model(p_images, feature_fmt='NCHW', **kwargs)
+                        if args.adaptor_name:
+                            all_feat = [
+                                output['backbone'].features,
+                                output[args.adaptor_name].features,
+                            ]
+                        else:
+                            all_feat = [output[1]]
+
+                all_feat = [rearrange(f, 'b c h w -> b h w c').float() for f in all_feat]
+
+                # b m h w c
+                all_feat = list(zip(*all_feat))
+
+                for i, feats in enumerate(all_feat):
+                    colored = []
+                    for features in feats:
+                        color = get_pca_map(features, images.shape[-2:], interpolation=args.interpolation, skip_components=args.skip)
+                        colored.append(color)
+
+                    orig = cv2.cvtColor(images[i].permute(1, 2, 0).cpu().numpy(), cv2.COLOR_RGB2BGR)
+
+                    cv2.imwrite(f'{dirs["orig"]}/vis_{ctr}.jpg', orig * 255)
+
+                    if args.intermediates:
+                        annotations = [f'layer_{i}_{args.intermediate_aggregation}' for i in args.intermediates]
+                    else:
+                        annotations = ["backbone"]
+                        if args.adaptor_name is not None:
+                            annotations.append(args.adaptor_name)
+                    for annotation, img in zip(annotations, colored):
+                        rdir = f'{dirs["viz"]}/{annotation}'
+                        os.makedirs(rdir, exist_ok=True)
+                        cv2.imwrite(f'{rdir}/vis_{ctr}.jpg', img * 255)
+
+                    grid_image = create_image_grid_with_annotations(
+                        images=[[orig] + colored],
+                        annotations=["Original"] + annotations)
+                    if args.intermediates:
+                        grid_filename = f'{dirs["grid"]}/vis_{ctr}_{args.intermediate_aggregation}.jpg'
+                    else:
+                        grid_filename = f'{dirs["grid"]}/vis_{ctr}.jpg'
+                    cv2.imwrite(grid_filename, grid_image * 255)
+
+                    sbs_images = [orig] + list(colored)
+                    op = np.concatenate(sbs_images, axis=1) * 255
+
+                    cv2.imwrite(f'{dirs["sbs"]}/vis_{ctr}.jpg', op)
+
+                    ctr += 1
+
+
+def process_with_animation(loader, model, preprocessor, device, args, dirs, anim_dirs):
+    """
+    Process images with radio1d_size animation.
+    First pass: Extract PCA stats with max radio1d_size.
+    Second pass: Generate frames for all radio1d_size values using those stats.
+    """
+    rank_print(f'Processing with radio1d animation: {args.radio1d_start} to {args.radio1d_end} step {args.radio1d_step}')
+
+    # Collect all images first
+    all_images = []
     ctr = 0
     for batches in loader:
         if ctr >= args.n:
             break
-
         for images, _ in batches:
             images = images.to(device=device, non_blocking=True)
+            all_images.append(images)
+            ctr += len(images)
 
-            all_feat = []
+    rank_print(f'Collected {len(all_images)} batches')
+
+    # First pass: Get PCA stats from the highest radio1d_size
+    rank_print(f'First pass: Computing PCA stats with radio1d_size={args.radio1d_end}')
+    pca_stats_list = []
+
+    for images in tqdm(all_images, desc='Computing PCA stats'):
+        with torch.autocast(device.type, dtype=torch.bfloat16):
+            p_images = preprocessor(images)
+
+            if args.intermediates:
+                outputs = model.forward_intermediates(
+                    p_images,
+                    indices=args.intermediates,
+                    return_prefix_tokens=False,
+                    norm=False,
+                    stop_early=True,
+                    output_fmt='NCHW',
+                    intermediates_only=True,
+                    aggregation=args.intermediate_aggregation,
+                    norm_alpha_scheme="none",
+                )
+                all_feat = outputs
+            else:
+                kwargs = {}
+                if args.neck:
+                    kwargs['num_tokens'] = args.radio1d_end
+                output = model(p_images, feature_fmt='NCHW', **kwargs)
+                if args.adaptor_name:
+                    all_feat = [
+                        output['backbone'].features,
+                        output[args.adaptor_name].features,
+                    ]
+                else:
+                    all_feat = [output[1]]
+
+        all_feat = [rearrange(f, 'b c h w -> b h w c').float() for f in all_feat]
+        all_feat = list(zip(*all_feat))
+
+        # Get PCA stats for each image
+        for feats in all_feat:
+            img_pca_stats = []
+            for features in feats:
+                _, pca_stats = get_pca_map(
+                    features,
+                    images.shape[-2:],
+                    interpolation=args.interpolation,
+                    return_pca_stats=True,
+                    skip_components=args.skip
+                )
+                img_pca_stats.append(pca_stats)
+            pca_stats_list.append(img_pca_stats)
+
+    # Second pass: Generate frames for all radio1d_size values
+    rank_print(f'Second pass: Generating frames for all radio1d_size values')
+    radio1d_sizes = list(range(args.radio1d_start, args.radio1d_end + 1, args.radio1d_step))
+
+    for img_idx, images in enumerate(tqdm(all_images, desc='Processing images')):
+        # Storage for animation frames
+        viz_frames = defaultdict(list)  # annotation -> list of frames
+        sbs_frames = []
+        grid_frames = []
+
+        orig = cv2.cvtColor(images[0].permute(1, 2, 0).cpu().numpy(), cv2.COLOR_RGB2BGR)
+
+        # Save original image
+        cv2.imwrite(f'{dirs["orig"]}/vis_{img_idx}.jpg', orig * 255)
+
+        for radio1d_size in tqdm(radio1d_sizes, desc=f'radio1d_size sweep (img {img_idx})', leave=False):
             with torch.autocast(device.type, dtype=torch.bfloat16):
                 p_images = preprocessor(images)
 
@@ -207,10 +401,12 @@ def main(rank: int = 0, world_size: int = 1):
                         aggregation=args.intermediate_aggregation,
                         norm_alpha_scheme="none",
                     )
-                    assert args.adaptor_name is None
                     all_feat = outputs
                 else:
-                    output = model(p_images, feature_fmt='NCHW')
+                    kwargs = {}
+                    if args.neck:
+                        kwargs['num_tokens'] = radio1d_size
+                    output = model(p_images, feature_fmt='NCHW', **kwargs)
                     if args.adaptor_name:
                         all_feat = [
                             output['backbone'].features,
@@ -220,45 +416,147 @@ def main(rank: int = 0, world_size: int = 1):
                         all_feat = [output[1]]
 
             all_feat = [rearrange(f, 'b c h w -> b h w c').float() for f in all_feat]
-
-            # b m h w c
             all_feat = list(zip(*all_feat))
 
-            for i, feats in enumerate(all_feat):
-                colored = []
-                for features in feats:
-                    color = get_pca_map(features, images.shape[-2:], interpolation=args.interpolation, skip_components=args.skip)
-                    colored.append(color)
+            # Render each feature map with its precomputed PCA basis (computed
+            # once at radio1d_end). Reusing the basis keeps colors stable across
+            # frames of the radio1d_size sweep.
+            feats = all_feat[0]  # First image in batch
+            colored = []
+            for feat_idx, features in enumerate(feats):
+                color = get_pca_map(
+                    features,
+                    images.shape[-2:],
+                    interpolation=args.interpolation,
+                    pca_stats=pca_stats_list[img_idx][feat_idx],
+                    skip_components=args.skip,
+                )
+                colored.append(color)
 
-                orig = cv2.cvtColor(images[i].permute(1, 2, 0).cpu().numpy(), cv2.COLOR_RGB2BGR)
+            if args.intermediates:
+                annotations = [f'layer_{i}_{args.intermediate_aggregation}' for i in args.intermediates]
+            else:
+                annotations = ["backbone"]
+                if args.adaptor_name is not None:
+                    annotations.append(args.adaptor_name)
 
-                cv2.imwrite(f'{dirs["orig"]}/vis_{ctr}.jpg', orig * 255)
+            for annotation, img in zip(annotations, colored):
+                frame = (img * 255).astype(np.uint8)
+                frame = add_text_overlay(frame, f"radio1d_size={radio1d_size}")
+                viz_frames[annotation].append(frame)
 
-                if args.intermediates:
-                    annotations = [f'layer_{i}_{args.intermediate_aggregation}' for i in args.intermediates]
-                else:
-                    annotations = ["backbone"]
-                    if args.adaptor_name is not None:
-                        annotations.append(args.adaptor_name)
-                for annotation, img in zip(annotations, colored):
-                    rdir = f'{dirs["viz"]}/{annotation}'
-                    os.makedirs(rdir, exist_ok=True)
-                    cv2.imwrite(f'{rdir}/vis_{ctr}.jpg', img * 255)
+            sbs_images = [orig] + list(colored)
+            sbs_frame = np.concatenate(sbs_images, axis=1) * 255
+            sbs_frame = sbs_frame.astype(np.uint8)
+            sbs_frame = add_text_overlay(sbs_frame, f"radio1d_size={radio1d_size}")
+            sbs_frames.append(sbs_frame)
 
-                # Create an image grid with the original image and the colored feature maps.
-                grid_image = create_image_grid_with_annotations(
-                    images=[[orig] + colored],
-                    annotations=["Original"] + annotations)
-                if args.intermediates:
-                    grid_filename = f'{dirs["grid"]}/vis_{ctr}_{args.intermediate_aggregation}.jpg'
-                else:
-                    grid_filename = f'{dirs["grid"]}/vis_{ctr}.jpg'
-                cv2.imwrite(grid_filename, grid_image * 255)
+            # Grid frame
+            grid_image = create_image_grid_with_annotations(
+                images=[[orig] + colored],
+                annotations=["Original"] + annotations
+            )
+            grid_image = (grid_image * 255).astype(np.uint8)
+            grid_image = add_text_overlay(grid_image, f"radio1d_size={radio1d_size}", position='bottom')
+            grid_frames.append(grid_image)
 
-                op = np.concatenate([orig] + colored, axis=1) * 255
+        # Save animated PNGs
+        rank_print(f'Saving animated PNGs for image {img_idx}')
 
-                cv2.imwrite(f'{dirs["sbs"]}/vis_{ctr}.jpg', op)
-                ctr += 1
+        # Save individual viz animations
+        for annotation, frames in viz_frames.items():
+            rdir = f'{anim_dirs["viz"]}/{annotation}'
+            os.makedirs(rdir, exist_ok=True)
+            save_animated_image(frames, f'{rdir}/vis_{img_idx}.png', duration=args.animation_duration)
+
+        # Save side-by-side animation
+        save_animated_image(sbs_frames, f'{anim_dirs["sbs"]}/vis_{img_idx}.gif', duration=args.animation_duration, format='GIF')
+
+        # Save grid animation
+        save_animated_image(grid_frames, f'{anim_dirs["grid"]}/vis_{img_idx}.png', duration=args.animation_duration)
+
+    rank_print('Animation processing complete!')
+
+
+def add_text_overlay(image, text, position='top', font=cv2.FONT_HERSHEY_SIMPLEX,
+                     font_scale=1.0, font_color=(255, 255, 255), thickness=2,
+                     bg_color=(0, 0, 0), padding=10):
+    """
+    Add text overlay to an image.
+
+    Args:
+        image: numpy array (H, W, C) in BGR format with values 0-255
+        text: Text to display
+        position: 'top' or 'bottom' for text placement
+        font: OpenCV font type
+        font_scale: Font scale
+        font_color: Text color (BGR)
+        thickness: Text thickness
+        bg_color: Background color for text (BGR)
+        padding: Padding around text
+
+    Returns:
+        Image with text overlay
+    """
+    image = image.copy()
+
+    # Get text size
+    (text_width, text_height), baseline = cv2.getTextSize(text, font, font_scale, thickness)
+
+    # Calculate position
+    img_height, img_width = image.shape[:2]
+
+    if position == 'top':
+        text_x = padding
+        text_y = padding + text_height
+        bg_y1 = 0
+        bg_y2 = text_height + 2 * padding
+    else:  # bottom
+        text_x = padding
+        text_y = img_height - padding - baseline
+        bg_y1 = img_height - text_height - 2 * padding - baseline
+        bg_y2 = img_height
+
+    bg_x1 = 0
+    bg_x2 = text_width + 2 * padding
+
+    # Draw semi-transparent background
+    overlay = image.copy()
+    cv2.rectangle(overlay, (bg_x1, bg_y1), (bg_x2, bg_y2), bg_color, -1)
+    alpha = 0.7
+    image = cv2.addWeighted(overlay, alpha, image, 1 - alpha, 0)
+
+    # Draw text
+    cv2.putText(image, text, (text_x, text_y), font, font_scale, font_color, thickness, cv2.LINE_AA)
+
+    return image
+
+
+def save_animated_image(frames, output_path, duration=100, format='PNG'):
+    """
+    Save a list of numpy arrays as an animated image.
+
+    Args:
+        frames: List of numpy arrays (H, W, C) in BGR format with values 0-255
+        output_path: Path to save the APNG file
+        duration: Duration of each frame in milliseconds
+    """
+    # Convert BGR frames to RGB PIL Images
+    pil_frames = []
+    for frame in frames:
+        # Convert BGR to RGB
+        frame_rgb = cv2.cvtColor(frame.astype(np.uint8), cv2.COLOR_BGR2RGB)
+        pil_frames.append(Image.fromarray(frame_rgb))
+
+    # Save as animated PNG
+    pil_frames[0].save(
+        output_path,
+        save_all=True,
+        append_images=pil_frames[1:],
+        duration=duration,
+        loop=0,  # 0 means infinite loop
+        format=format
+    )
 
 
 def get_robust_pca(features: torch.Tensor, m: float = 2, remove_first_component=False, skip: int = 0):

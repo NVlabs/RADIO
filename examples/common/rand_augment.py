@@ -1,6 +1,5 @@
 from typing import Dict, List, Sequence
 import albumentations as A
-from albumentations.core.transforms_interface import KeypointType
 import cv2
 import numpy as np
 

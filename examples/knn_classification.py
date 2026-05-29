@@ -93,13 +93,15 @@ def main(rank: int = 0, world_size: int = 1):
                         help='Use the huggingface model')
     parser.add_argument('--csv-out', type=str, default=None,
                         help='Append the kNN accuracy to the specified csv')
+    parser.add_argument('--neck', default=None, type=str, help='Generate features from specified neck')
 
     args, _ = parser.parse_known_args()
 
     rank_print('Loading model...')
     model, preprocessor, info = load_model(args.model_version, vitdet_window_size=args.vitdet_window_size,
                                            adaptor_names=args.adaptor_name, force_reload=args.force_reload,
-                                           torchhub_repo=args.torchhub_repo, use_huggingface=args.use_huggingface)
+                                           torchhub_repo=args.torchhub_repo, use_huggingface=args.use_huggingface,
+                                           neck_name=args.neck)
     model.to(device=device).eval()
     rank_print('Done')
 
