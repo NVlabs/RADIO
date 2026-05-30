@@ -1,3 +1,5 @@
+[![DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/NVlabs/RADIO)
+
 [![Star on GitHub](https://img.shields.io/github/stars/NVlabs/RADIO.svg?style=social)](https://github.com/NVlabs/RADIO/stargazers)
 [![License](https://img.shields.io/badge/license-NC-blue.svg)](LICENSE)
 [![Paper](https://img.shields.io/badge/CRADIOv4-arXiv.2601.17237-red.svg)](https://arxiv.org/abs/2601.17237)
