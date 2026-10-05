@@ -38,6 +38,7 @@ class AttnFDHead(AdaptorModuleBase):
             Block(input_size, num_heads=16, init_values=1e-5)
             for _ in range(2)
         ])
+        self.upsample_factor = upsample_factor
         self.mlp = MLP2(input_size, hidden_size, output_size,
                         num_inner=0, pre_norm=pre_norm, device=device,
                         upsample_factor=upsample_factor, upsample_rank=upsample_rank, **kwargs)
