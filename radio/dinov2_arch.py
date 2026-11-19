@@ -305,16 +305,12 @@ class LayerScale(nn.Module):
         elif key_b in state_dict:
             gamma = state_dict[key_b]
         else:
-            if strict:
-                raise KeyError(f"Couldn't find the key {key_a} nor {key_b} in the state dict!")
-            else:
-                missing_keys.append(key_a)
-                missing_keys.append(key_b)
-                unexpected_keys.extend(state_dict.keys())
-                gamma = None
+            # `nn.Module.load_state_dict` always calls this with `strict=True` and applies `strict` itself
+            # from `missing_keys`, so report the parameter as missing instead of raising here.
+            missing_keys.append(key_b)
+            return
 
-        if gamma is not None:
-            self.grandma.data.copy_(gamma)
+        self.grandma.data.copy_(gamma)
 
         # return super()._load_from_state_dict(state_dict, prefix, local_metadata, strict, missing_keys, unexpected_keys, error_msgs)
 
